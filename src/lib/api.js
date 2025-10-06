@@ -1,4 +1,7 @@
-const BASE = process.env.REACT_APP_API || "http://localhost:5174";
+//const BASE = process.env.REACT_APP_API || "http://localhost:5174";
+
+const BASE = process.env.REACT_APP_API || "";
+
 
 async function jfetch(url, opts={}) {
   const r = await fetch(BASE + url, {
