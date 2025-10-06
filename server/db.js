@@ -1,42 +1,23 @@
-// server/db.js
 import sqlite3 from 'sqlite3';
-import fs from 'fs';
-import path from 'path';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
+const __dirname = dirname(fileURLToPath(import.meta.url)); // ✅ radi i na Windowsu
+const dbPath = join(__dirname, 'mydienst.sqlite');
+
 sqlite3.verbose();
+export const db = new sqlite3.Database(dbPath);
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// data/ folder za SQLite fajl
-const dataDir = path.join(__dirname, 'data');
-fs.mkdirSync(dataDir, { recursive: true });
-
-// puna putanja do baze
-const dbPath = path.join(dataDir, 'mydienst.sqlite');
-
-// otvori/kreiraj bazu
-export const db = new sqlite3.Database(
-  dbPath,
-  sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE,
-  (err) => {
-    if (err) {
-      console.error('DB open error:', err);
-    } else {
-      console.log('SQLite DB ready at:', dbPath);
-    }
-  }
-);
-
-// migracije
 export function migrate() {
-  const schemaPath = path.join(__dirname, 'schema.sql');
-  const schema = fs.readFileSync(schemaPath, 'utf8');
-  db.exec(schema);
+  const schemaPath = join(__dirname, 'schema.sql');
+  const schema = readFileSync(schemaPath, 'utf8');
+  db.exec(schema, (err) => {
+    if (err) console.error('Migration failed:', err.message);
+    else console.log('Database migrated successfully.');
+  });
 }
 
-// helpers
 export const run = (sql, params = []) =>
   new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {

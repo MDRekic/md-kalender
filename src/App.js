@@ -14,9 +14,9 @@ export default function App() {
         {showNav && (
           <header className="mb-6 flex items-end justify-between">
             <div>
-              <h1 className="text-2xl font-bold">MyDienst - Kalendar</h1>
+              <h1 className="text-2xl font-bold">MyDienst – Vizualni kalendar</h1>
               <p className="text-slate-600">
-                Glasfaser Einblasen & Montage.
+                Glasfaser Einblasen & Montage · ručni unos termina (puna kontrola).
               </p>
             </div>
             <nav className="flex gap-2">
@@ -45,7 +45,7 @@ export default function App() {
         </Routes>
 
         <footer className="mt-10 text-center text-xs text-slate-500">
-          © {new Date().getFullYear()} MyDienst GmbH
+          © {new Date().getFullYear()} MyDienst GmbH · SQLite + email, CSV, Print
         </footer>
       </div>
     </div>

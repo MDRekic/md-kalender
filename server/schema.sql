@@ -2,10 +2,10 @@ PRAGMA journal_mode = WAL;
 
 CREATE TABLE IF NOT EXISTS slots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  date TEXT NOT NULL,      -- YYYY-MM-DD
-  time TEXT NOT NULL,      -- HH:MM
+  date TEXT NOT NULL,
+  time TEXT NOT NULL,
   duration INTEGER NOT NULL DEFAULT 120,
-  status TEXT NOT NULL DEFAULT 'free'  -- free | booked
+  status TEXT NOT NULL DEFAULT 'free'
 );
 
 CREATE TABLE IF NOT EXISTS bookings (
@@ -18,4 +18,13 @@ CREATE TABLE IF NOT EXISTS bookings (
   note TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (slot_id) REFERENCES slots(id)
+);
+
+-- Users (admin nalozi)
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'admin',
+  email TEXT
 );

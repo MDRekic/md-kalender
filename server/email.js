@@ -1,14 +1,10 @@
-// server/email.js
-import nodemailer from "nodemailer";
-import dotenv from "dotenv";
-
-dotenv.config();
+import nodemailer from 'nodemailer';
 
 export function makeTransport() {
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === "true",
+    secure: !!Number(process.env.SMTP_SECURE || 0),
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -16,15 +12,16 @@ export function makeTransport() {
   });
 }
 
-export function bookingEmails({ brand, toAdmin, toInvitee, slot, booking, replyTo }) {
+// 🇩🇪 njemački template
+export function bookingEmails({ brand, toAdmin, toInvitee, slot, booking }) {
   const subject = `Terminbestätigung – ${slot.date} ${slot.time}`;
   const head =
     `<div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto">
       <h2 style="margin:0 0 8px">${brand} – Terminbestätigung</h2>
       <p style="color:#555;margin:0 0 16px">Vielen Dank für Ihre Buchung!</p>`;
-  const tbl = (label, val) =>
-    `<tr><td style="padding:6px 10px;border:1px solid #e5e7eb"><b>${label}</b></td>
-         <td style="padding:6px 10px;border:1px solid #e5e7eb">${val}</td></tr>`;
+  const tbl = (rowLabel, rowValue) =>
+    `<tr><td style="padding:6px 10px;border:1px solid #e5e7eb"><b>${rowLabel}</b></td>
+         <td style="padding:6px 10px;border:1px solid #e5e7eb">${rowValue}</td></tr>`;
   const table =
     `<table style="border-collapse:collapse;border:1px solid #e5e7eb;width:100%;margin:8px 0">
       ${tbl('Datum', slot.date)}
@@ -51,4 +48,3 @@ export function bookingEmails({ brand, toAdmin, toInvitee, slot, booking, replyT
 
   return { subject, htmlInvitee, htmlAdmin };
 }
-
