@@ -213,8 +213,8 @@ app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
 // ---------- BOOKINGS (public POST) ----------
 app.post('/api/bookings', async (req, res) => {
   try {
-    const { slotId, fullName, email, phone, address, note } = req.body || {};
-    if (!slotId || !fullName || !email || !phone || !address) {
+    const { slotId, fullName, email, phone, address, plz, city, note } = req.body || {};
+    if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
       return res.status(400).json({ error: 'missing_fields' });
     }
 
@@ -223,8 +223,8 @@ app.post('/api/bookings', async (req, res) => {
     if (slot.status === 'booked') return res.status(409).json({ error: 'already_booked' });
 
     const { id: bookingId } = await run(
-      'INSERT INTO bookings (slot_id, full_name, email, phone, address, note) VALUES (?,?,?,?,?,?)',
-      [slotId, fullName, email, phone, address, note || null]
+      'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note) VALUES (?,?,?,?,?,?,?,?)',
+      [slotId, fullName, email, phone, address, plz, city, note || null]
     );
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
 
@@ -236,7 +236,7 @@ app.post('/api/bookings', async (req, res) => {
       toAdmin: process.env.ADMIN_EMAIL,
       toInvitee: email,
       slot,
-      booking: { full_name: fullName, email, phone, address, note },
+      booking: { full_name: fullName, email, phone, address, plz, city, note },
       replyTo,
     });
 
@@ -267,7 +267,7 @@ app.post('/api/bookings', async (req, res) => {
 app.get('/api/admin/bookings', ensureAdmin, async (_req, res) => {
   try {
     const rows = await all(
-      `SELECT b.id, s.date, s.time, s.duration, b.full_name, b.email, b.phone, b.address, b.note, b.created_at
+      `SELECT b.id, s.date, s.time, s.duration, b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
        FROM bookings b JOIN slots s ON s.id = b.slot_id
        ORDER BY s.date, s.time`
     );
@@ -293,12 +293,12 @@ app.get('/api/bookings.csv', ensureAdmin, async (_req, res) => {
   try {
     const rows = await all(
       `SELECT b.id as booking_id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.note, b.created_at
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
          ORDER BY s.date, s.time`
     );
-    const header = ['booking_id','date','time','duration','full_name','email','phone','address','note','created_at'];
+    const header = ['booking_id','date','time','duration','full_name','email','phone','address','plz','city','note','created_at'];
     const csv = [header.join(',')]
       .concat(rows.map(r => header.map(h => `"${String(r[h]??'').replace(/"/g,'""')}"`).join(',')))
       .join('\n');
@@ -345,6 +345,8 @@ app.get('/api/bookings/:id/print', async (req, res) => {
       <div><b>E-Mail</b></div><div>${row.email}</div>
       <div><b>Telefon</b></div><div>${row.phone}</div>
       <div><b>Adresse</b></div><div>${row.address}</div>
+      <div><b>PLZ</b></div><div>${row.plz}</div>
+      <div><b>Stadt</b></div><div>${row.city}</div>
       <div><b>Notiz</b></div><div>${row.note || '–'}</div>
       <div><b>Erstellt am</b></div><div>${row.created_at}</div>
     </div>

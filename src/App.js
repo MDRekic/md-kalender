@@ -46,7 +46,7 @@ export default function App() {
         </Routes>
 
         <footer className="mt-10 text-center text-xs text-slate-500">
-          © {new Date().getFullYear()} MyDienst GmbH · SQLite + email, CSV, Print
+          © {new Date().getFullYear()} MyDienst GmbH · www.mydienst.de
         </footer>
       </div>
     </div>

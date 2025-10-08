@@ -5,15 +5,17 @@ export default function BookingModal({ slot, onClose, onSubmit }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [plz, setPlz] = useState("");
+  const [city, setCity] = useState("");
   const [note, setNote] = useState("");
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!fullName || !email || !phone || !address) {
-      alert("Bitte füllen Sie alle Pflichtfelder aus (Name, E-Mail, Telefon, Adresse).");
+    if (!fullName || !email || !phone || !address || !plz || !city) {
+      alert("Bitte füllen Sie alle Pflichtfelder aus (Name, E-Mail, Telefon, Adresse, PLZ, Stadt).");
       return;
     }
-    onSubmit({ fullName, email, phone, address, note });
+    onSubmit({ fullName, email, phone, address, plz, city, note });
   };
 
   return (
@@ -66,6 +68,32 @@ export default function BookingModal({ slot, onClose, onSubmit }) {
               onChange={(e) => setAddress(e.target.value)}
               required
             />
+          </div>
+
+          {/* PLZ + Stadt u istom redu */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium">PLZ *</label>
+              <input
+                type="text"
+                pattern="^[0-9]{4,5}$"
+                title="Bitte 4–5 Ziffern eingeben"
+                className="w-full rounded-lg border border-slate-300 p-2"
+                value={plz}
+                onChange={(e) => setPlz(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium">Stadt *</label>
+              <input
+                type="text"
+                className="w-full rounded-lg border border-slate-300 p-2"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                required
+              />
+            </div>
           </div>
 
           <div>

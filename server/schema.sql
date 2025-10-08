@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS bookings (
   email TEXT NOT NULL,
   phone TEXT,
   address TEXT,
+  plz TEXT,
+  city TEXT,
   note TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (slot_id) REFERENCES slots(id)

@@ -31,6 +31,8 @@ export function bookingEmails({ brand, toAdmin, toInvitee, slot, booking }) {
       ${tbl('E-Mail', booking.email)}
       ${tbl('Telefon', booking.phone)}
       ${tbl('Adresse', booking.address)}
+      ${tbl('PLZ', booking.plz)}
+      ${tbl('Stadt', booking.city)}
       ${tbl('Notiz', booking.note || '–')}
     </table>`;
 
