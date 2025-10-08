@@ -7,11 +7,9 @@ import { listSlots, createBooking, printUrl } from "../lib/api";
 export default function KalendarPage() {
   const [activeDate, setActiveDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => ymd(new Date()));
-  const [daySlotsFree] = daySlots.filter((s) => s.status === "free");
   const [slots, setSlots] = useState([]);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [slotForBooking, setSlotForBooking] = useState(null);
-  
 
   const todayStr = useMemo(() => ymd(new Date()), []);
 
@@ -19,9 +17,19 @@ export default function KalendarPage() {
     listSlots(selectedDate).then(setSlots).catch(() => setSlots([]));
   }, [selectedDate]);
 
+  // Svi slotovi za taj dan (sortirani)
   const daySlots = useMemo(
-    () => slots.filter((s) => s.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time)),
+    () =>
+      slots
+        .filter((s) => s.date === selectedDate)
+        .sort((a, b) => a.time.localeCompare(b.time)),
     [slots, selectedDate]
+  );
+
+  // Samo slobodni slotovi za javni prikaz
+  const daySlotsFree = useMemo(
+    () => daySlots.filter((s) => s.status === "free"),
+    [daySlots]
   );
 
   function openBooking(slot) {
@@ -31,7 +39,7 @@ export default function KalendarPage() {
     }
   }
 
-    async function submitBooking({ fullName, email, phone, address, plz, city, note }) {
+  async function submitBooking({ fullName, email, phone, address, plz, city, note }) {
     if (!fullName || !email || !phone || !address || !plz || !city) {
       alert("Bitte füllen Sie alle Pflichtfelder aus.");
       return;
@@ -45,7 +53,7 @@ export default function KalendarPage() {
         address,
         plz,
         city,
-        note
+        note,
       });
       setBookingOpen(false);
       setSlotForBooking(null);
@@ -74,37 +82,37 @@ export default function KalendarPage() {
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="mb-3 text-lg font-semibold">Termine – {selectedDate}</h2>
-        
-         {daySlotsFree.length === 0 ? (
-          <p className="text-slate-500 mt-2">Keine freien Termine an diesem Tag.</p>
-        ) : (
-         <ul className="mt-3 space-y-2">
-    {daySlotsFree.map((s) => (
-      <li
-        key={s.id}
-        className="flex items-center justify-between rounded-xl border border-slate-200 p-3"
-      >
-        <div>
-          <div className="font-medium">
-            {s.time} · {s.duration} Min.
-          </div>
-          <div className="text-sm">
-            {/* po želji možeš potpuno izostaviti status */}
-            Status: <span className="text-emerald-600">frei</span>
-          </div>
-        </div>
-        <div>
-          <button
-            onClick={() => openBooking(s)}
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700"
-          >
-            Buchen
-          </button>
-        </div>
-      </li>
-    ))}
-  </ul>
-)}
+
+          {daySlotsFree.length === 0 ? (
+            <p className="mt-2 text-slate-500">Keine freien Termine an diesem Tag.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {daySlotsFree.map((s) => (
+                <li
+                  key={s.id}
+                  className="flex items-center justify-between rounded-xl border border-slate-200 p-3"
+                >
+                  <div>
+                    <div className="font-medium">
+                      {s.time} · {s.duration} Min.
+                    </div>
+                    {/* Ako ne želiš nikakav status tekst, obriši cijeli ovaj div */}
+                    <div className="text-sm">
+                      Status: <span className="text-emerald-600">frei</span>
+                    </div>
+                  </div>
+                  <div>
+                    <button
+                      onClick={() => openBooking(s)}
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700"
+                    >
+                      Buchen
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </div>
 
