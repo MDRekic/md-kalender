@@ -1,358 +1,362 @@
-// server/server.js  (ESM)
-
-import 'dotenv/config';
+// server/server.js
 import express from 'express';
-import cookieParser from 'cookie-parser';
 import cors from 'cors';
+import dotenv from 'dotenv';
 import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { db, migrate } from './db.js';
-import { sendMail } from './email.js';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-// ----------------------------------------------------
-// Setup
-// ----------------------------------------------------
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { all, get, migrate, run } from './db.js';
+import { makeTransport, bookingEmails } from './email.js';
+import { issueToken, verifyToken } from './auth.js';
+
+dotenv.config();
 
 const app = express();
+const PORT = Number(process.env.PORT || 5174);
 
-app.use(helmet({
-  contentSecurityPolicy: {
-    useDefaults: true,
-    directives: {
-      "script-src": ["'self'"],
-      "style-src": ["'self'", "https:", "'unsafe-inline'"],
-      "img-src": ["'self'", "data:"],
-    }
+// DB migracije (kreira tabele ako ne postoje)
+migrate();
+
+// seed admin user ako ga nema (uzima iz .env, fallback je "admin"/hash("admin"))
+async function ensureAdminUser() {
+  const username = process.env.ADMIN_USER || 'admin';
+  const envHash = process.env.ADMIN_PASS_HASH || '';
+  const row = await get('SELECT id FROM users WHERE username=?', [username]);
+  if (!row) {
+    const password_hash = envHash && envHash.length > 0
+      ? envHash
+      : await bcrypt.hash('admin', 10);
+    await run(
+      'INSERT INTO users (username, password_hash, role, email) VALUES (?,?,?,?)',
+      [username, password_hash, 'admin', process.env.ADMIN_EMAIL || null]
+    );
+    console.log(`[users] Seed admin created: ${username}${envHash ? ' (from .env hash)' : ' (default pass: "admin")'}`);
   }
-}));
+}
+ensureAdminUser().catch(console.error);
 
+// security & parsers
+app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(express.json());
 app.use(cookieParser());
 
-const ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:3000';
-app.use(cors({
-  origin: ORIGIN,
-  credentials: true,
-}));
+// CORS (u produkciji postavi CORS_ORIGIN na tvoj domen)
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    credentials: true,
+  })
+);
 
-const PORT = Number(process.env.PORT || 5174);
+// rate limit
+const authLimiter = rateLimit({ windowMs: 60_000, max: 20 });
+app.use('/api/auth', authLimiter);
+app.use('/api/bookings', rateLimit({ windowMs: 60_000, max: 100 }));
 
-// ----------------------------------------------------
-// Helpers
-// ----------------------------------------------------
-const TOKEN_COOKIE = 'mdk_token';
-
-function issueToken(payload) {
-  return jwt.sign(payload, process.env.JWT_SECRET || 'dev_secret', { expiresIn: '7d' });
-}
-
-function readToken(req) {
-  const t = req.cookies?.[TOKEN_COOKIE];
-  if (!t) return null;
-  try {
-    return jwt.verify(t, process.env.JWT_SECRET || 'dev_secret');
-  } catch {
-    return null;
-  }
-}
-
-function requireAdmin(req, res, next) {
-  const tok = readToken(req);
-  if (!tok || !tok.admin) return res.status(401).json({ error: 'unauthorized' });
+// --- helper middleware ---
+function ensureAdmin(req, res, next) {
+  const token = req.cookies?.admtk;
+  const decoded = token && verifyToken(token, process.env.JWT_SECRET || 'secret');
+  if (!decoded?.admin) return res.status(401).json({ error: 'unauthorized' });
+  req.admin = decoded;
   next();
 }
 
-const escapeHtml = (s = '') =>
-  String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-
-// ----------------------------------------------------
-// Auth
-// ----------------------------------------------------
-app.get('/api/auth/me', (req, res) => {
-  const tok = readToken(req);
-  res.json({ admin: !!tok?.admin });
-});
-
+// ---------- AUTH ----------
 app.post('/api/auth/login', async (req, res) => {
-  const { username, password } = req.body || {};
-  const okUser = username === (process.env.ADMIN_USER || 'admin');
-  const okPass = await bcrypt.compare(password || '', process.env.ADMIN_PASS_HASH || '');
-  if (!okUser || !okPass) return res.status(401).json({ error: 'bad_credentials' });
-
-  const token = issueToken({ admin: true });
-  res.cookie(TOKEN_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: ORIGIN.startsWith('https'),
-    path: '/',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
-  res.json({ ok: true });
-});
-
-app.post('/api/auth/logout', (req, res) => {
-  res.clearCookie(TOKEN_COOKIE, { path: '/' });
-  res.json({ ok: true });
-});
-
-// ----------------------------------------------------
-// Slots (public + admin)
-// ----------------------------------------------------
-
-// GET /api/slots?date=YYYY-MM-DD (ako date nije dan, vraća sve slotove u mjesecu)
-app.get('/api/slots', async (req, res) => {
   try {
-    const { date } = req.query || {};
-    let rows;
-    if (date) {
-      rows = await db.all(
-        `SELECT * FROM slots WHERE date = ? ORDER BY time`, [date]
-      );
-    } else {
-      rows = await db.all(`SELECT * FROM slots ORDER BY date, time`);
-    }
-    res.json(rows);
+    const { username, password } = req.body || {};
+    if (!username || !password) return res.status(400).json({ error: 'missing_fields' });
+
+    // čitanje iz DB
+    const user = await get(
+      'SELECT id, username, password_hash, role FROM users WHERE username=?',
+      [username]
+    );
+    if (!user) return res.status(401).json({ error: 'bad_credentials' });
+
+    const okPass = await bcrypt.compare(password, user.password_hash || '');
+    if (!okPass) return res.status(401).json({ error: 'bad_credentials' });
+
+    const token = issueToken(
+      { admin: user.role === 'admin', username: user.username, uid: user.id, role: user.role },
+      process.env.JWT_SECRET || 'secret'
+    );
+    res.cookie('admtk', token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: false, // true kad imaš HTTPS
+      maxAge: 7 * 24 * 3600 * 1000,
+    });
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'server_error' });
+    res.status(500).json({ error: 'login_failed' });
   }
 });
 
-// POST /api/slots  {date, time, duration}
-app.post('/api/slots', requireAdmin, async (req, res) => {
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('admtk');
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  const token = req.cookies?.admtk;
+  const decoded = token && verifyToken(token, process.env.JWT_SECRET || 'secret');
+  res.json({ admin: !!decoded?.admin, user: decoded || null });
+});
+
+// ---------- (opciono) USER MANAGEMENT (admin) ----------
+app.post('/api/admin/users', ensureAdmin, async (req, res) => {
+  try {
+    const { username, password, role = 'admin', email = null } = req.body || {};
+    if (!username || !password) return res.status(400).json({ error: 'missing_fields' });
+    const exists = await get('SELECT id FROM users WHERE username=?', [username]);
+    if (exists) return res.status(409).json({ error: 'user_exists' });
+    const password_hash = await bcrypt.hash(password, 10);
+    const { id } = await run(
+      'INSERT INTO users (username, password_hash, role, email) VALUES (?,?,?,?)',
+      [username, password_hash, role, email]
+    );
+    const row = await get('SELECT id, username, role, email FROM users WHERE id=?', [id]);
+    res.json(row);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'user_create_failed' });
+  }
+});
+
+app.patch('/api/admin/users/:id', ensureAdmin, async (req, res) => {
+  try {
+    const { password, role, email } = req.body || {};
+    const id = req.params.id;
+    if (password) {
+      const password_hash = await bcrypt.hash(password, 10);
+      await run('UPDATE users SET password_hash=? WHERE id=?', [password_hash, id]);
+    }
+    if (role) await run('UPDATE users SET role=? WHERE id=?', [role, id]);
+    if (typeof email !== 'undefined') await run('UPDATE users SET email=? WHERE id=?', [email, id]);
+    const row = await get('SELECT id, username, role, email FROM users WHERE id=?', [id]);
+    res.json(row);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'user_update_failed' });
+  }
+});
+
+app.get('/api/admin/users', ensureAdmin, async (_req, res) => {
+  try {
+    const rows = await all('SELECT id, username, role, email FROM users ORDER BY username');
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'users_list_failed' });
+  }
+});
+
+app.delete('/api/admin/users/:id', ensureAdmin, async (req, res) => {
+  try {
+    const { changes } = await run('DELETE FROM users WHERE id=?', [req.params.id]);
+    res.json({ deleted: changes });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'user_delete_failed' });
+  }
+});
+
+// ---------- SLOTS ----------
+app.get('/api/slots', async (req, res) => {
+  try {
+    const { date } = req.query;
+    const rows = date
+      ? await all('SELECT * FROM slots WHERE date=? ORDER BY time', [date])
+      : await all('SELECT * FROM slots ORDER BY date,time');
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'slots_list_failed' });
+  }
+});
+
+app.post('/api/slots', ensureAdmin, async (req, res) => {
   try {
     const { date, time, duration = 120 } = req.body || {};
     if (!date || !time) return res.status(400).json({ error: 'missing_fields' });
 
-    const r = await db.run(
-      `INSERT INTO slots (date,time,duration,status) VALUES (?,?,?,'free')`,
-      [date, time, Number(duration)]
+    const { id } = await run(
+      'INSERT INTO slots (date,time,duration,status) VALUES (?,?,?,?)',
+      [date, time, duration, 'free']
     );
-    const created = await db.get(`SELECT * FROM slots WHERE id = ?`, [r.lastID]);
-    res.json(created);
+    const row = await get('SELECT * FROM slots WHERE id=?', [id]);
+    res.json(row);
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'server_error' });
+    res.status(500).json({ error: 'slot_create_failed' });
   }
 });
 
-// DELETE /api/slots/:id   (samo ako nije rezerviran)
-app.delete('/api/slots/:id', requireAdmin, async (req, res) => {
+app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
   try {
-    const id = req.params.id;
-    const slot = await db.get(`SELECT * FROM slots WHERE id = ?`, [id]);
-    if (!slot) return res.status(404).json({ error: 'not_found' });
-    if (slot.status !== 'free') return res.status(400).json({ error: 'reserved' });
-
-    await db.run(`DELETE FROM slots WHERE id = ?`, [id]);
-    res.json({ ok: true });
+    const { changes } = await run(
+      'DELETE FROM slots WHERE id=? AND status!="booked"',
+      [req.params.id]
+    );
+    res.json({ deleted: changes });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'server_error' });
+    res.status(500).json({ error: 'slot_delete_failed' });
   }
 });
 
-// ----------------------------------------------------
-// Bookings (public create)
-// ----------------------------------------------------
-
-// POST /api/bookings  {slotId, fullName, email, phone, address, plz, city, note}
+// ---------- BOOKINGS (public POST) ----------
 app.post('/api/bookings', async (req, res) => {
   try {
-    const { slotId, fullName, email, phone, address, plz, city, note } = req.body || {};
-    if (!slotId || !fullName || !email || !phone || !address || !plz || !city)
-      return res.status(400).json({ error: 'missing_fields' });
+         const { slotId, fullName, email, phone, address, plz, city, note } = req.body || {};
+        if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
+          return res.status(400).json({ error: 'missing_fields' });
+        }
 
-    const slot = await db.get(`SELECT * FROM slots WHERE id = ?`, [slotId]);
+    const slot = await get('SELECT * FROM slots WHERE id=?', [slotId]);
     if (!slot) return res.status(404).json({ error: 'slot_not_found' });
-    if (slot.status !== 'free') return res.status(400).json({ error: 'slot_taken' });
+    if (slot.status === 'booked') return res.status(409).json({ error: 'already_booked' });
 
-    const ins = await db.run(
-      `INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note, created_at)
-       VALUES (?,?,?,?,?,?,?,?,datetime('now'))`,
+    const { id: bookingId } = await run(
+      'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note) VALUES (?,?,?,?,?,?,?,?)',
       [slotId, fullName, email, phone, address, plz, city, note || null]
     );
-    await db.run(`UPDATE slots SET status = 'booked' WHERE id = ?`, [slotId]);
+    await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
 
-    // e-mail potvrde
-    const when = `${slot.date} ${slot.time}`;
-    const subject = `Termin bestätigt – ${when}`;
-    const htmlUser = `
-      <p>Guten Tag ${escapeHtml(fullName)},</p>
-      <p>Ihr Termin am <b>${slot.date}</b> um <b>${slot.time}</b> (Dauer ${slot.duration} Min.) ist bestätigt.</p>
-      <p><b>Adresse:</b> ${escapeHtml(address)}, ${escapeHtml(plz)} ${escapeHtml(city)}</p>
-      ${note ? `<p><b>Notiz:</b> ${escapeHtml(note)}</p>` : ''}
-      <p>— ${escapeHtml(process.env.BRAND_NAME || 'MyDienst')}</p>
-    `;
-    const htmlAdmin = `
-      <p>Neue Buchung:</p>
-      <ul>
-        <li><b>Datum/Zeit:</b> ${slot.date} ${slot.time}</li>
-        <li><b>Dauer:</b> ${slot.duration} Min.</li>
-        <li><b>Kunde:</b> ${escapeHtml(fullName)} (${escapeHtml(email)})</li>
-        <li><b>Telefon:</b> ${escapeHtml(phone)}</li>
-        <li><b>Adresse:</b> ${escapeHtml(address)}, ${escapeHtml(plz)} ${escapeHtml(city)}</li>
-        ${note ? `<li><b>Notiz:</b> ${escapeHtml(note)}</li>` : ''}
-      </ul>
-    `;
-    // Pošalji kupcu i adminu (pokušaj, ali nemoj rušiti ako mail padne)
-    try { await sendMail({ to: email, subject, html: htmlUser }); } catch (e) { console.error('mail user', e); }
-    try { await sendMail({ to: process.env.ADMIN_EMAIL, subject: `ADMIN: ${subject}`, html: htmlAdmin }); } catch (e) { console.error('mail admin', e); }
+    // ✉️ email-notifikacije
+    const transport = makeTransport();
+    const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
+    const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
+      brand: process.env.BRAND_NAME || 'MyDienst',
+      toAdmin: process.env.ADMIN_EMAIL,
+      toInvitee: email,
+      slot,
+      booking: { full_name: fullName, email, phone, address, plz, city, note },
+      replyTo,
+    });
 
-    res.json({ ok: true, bookingId: ins.lastID });
+    transport.sendMail({
+      from: process.env.SMTP_USER,
+      to: email,
+      subject,
+      html: htmlInvitee,
+      replyTo,
+    }).catch(console.error);
+
+    transport.sendMail({
+      from: process.env.SMTP_USER,
+      to: process.env.ADMIN_EMAIL,
+      subject: `Neue Buchung – ${subject}`,
+      html: htmlAdmin,
+      replyTo,
+    }).catch(console.error);
+
+    res.json({ bookingId, slotId });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'server_error' });
+    res.status(500).json({ error: 'booking_failed' });
   }
 });
 
-// GET /api/bookings.csv (admin export)
-app.get('/api/bookings.csv', requireAdmin, async (req, res) => {
+// ---------- ADMIN BOOKINGS LIST ----------
+app.get('/api/admin/bookings', ensureAdmin, async (_req, res) => {
   try {
-    const rows = await db.all(
-      `SELECT b.id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
+    const rows = await all(
+      `SELECT b.id, s.date, s.time, s.duration, b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
        FROM bookings b JOIN slots s ON s.id = b.slot_id
-       ORDER BY s.date DESC, s.time DESC`
-    );
-    const header = [
-      'id', 'date', 'time', 'duration',
-      'full_name', 'email', 'phone', 'address', 'plz', 'city', 'note', 'created_at'
-    ];
-    const csv = [header.join(',')]
-      .concat(rows.map(r => header.map(k => `"${String(r[k] ?? '').replace(/"/g, '""')}"`).join(',')))
-      .join('\n');
-
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.send(csv);
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
-
-// GET /api/bookings/:id/print  – jednostavan HTML za print
-app.get('/api/bookings/:id/print', async (req, res) => {
-  try {
-    const id = req.params.id;
-    const r = await db.get(
-      `SELECT b.id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
-       FROM bookings b JOIN slots s ON s.id = b.slot_id
-       WHERE b.id = ?`,
-      [id]
-    );
-    if (!r) return res.status(404).send('Not found');
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(`
-      <html><head><meta charset="utf-8"><title>Buchung #${r.id}</title>
-        <style>body{font-family:system-ui,Arial,sans-serif;padding:24px} h1{margin-top:0}</style>
-      </head><body>
-        <h1>Termin-Bestätigung #${r.id}</h1>
-        <p><b>Datum/Zeit:</b> ${r.date} ${r.time} (${r.duration} Min.)</p>
-        <p><b>Kunde:</b> ${escapeHtml(r.full_name)} (${escapeHtml(r.email)})</p>
-        <p><b>Telefon:</b> ${escapeHtml(r.phone||'')}</p>
-        <p><b>Adresse:</b> ${escapeHtml(r.address||'')}, ${escapeHtml(r.plz||'')} ${escapeHtml(r.city||'')}</p>
-        ${r.note ? `<p><b>Notiz:</b> ${escapeHtml(r.note)}</p>` : ''}
-        <p style="margin-top:32px">— ${escapeHtml(process.env.BRAND_NAME || 'MyDienst')}</p>
-        <script>window.print()</script>
-      </body></html>
-    `);
-  } catch (e) {
-    console.error(e);
-    res.status(500).send('Server error');
-  }
-});
-
-// ----------------------------------------------------
-// Admin – list & delete booking (sa razlogom + email)
-// ----------------------------------------------------
-app.get('/api/admin/bookings', requireAdmin, async (req, res) => {
-  try {
-    const rows = await db.all(
-      `SELECT b.id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
-       FROM bookings b JOIN slots s ON s.id = b.slot_id
-       ORDER BY s.date DESC, s.time DESC`
+       ORDER BY s.date, s.time`
     );
     res.json(rows);
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'server_error' });
+    res.status(500).json({ error: 'bookings_list_failed' });
   }
 });
 
-// DELETE /api/admin/bookings/:id  {reason}
-app.delete('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
-  const id = req.params.id;
-  const { reason } = req.body || {};
-
-  if (!reason || !reason.trim()) {
-    return res.status(400).json({ error: 'reason_required' });
-  }
-
+app.delete('/api/admin/bookings/:id', ensureAdmin, async (req, res) => {
   try {
-    const booking = await db.get(
-      `SELECT b.id, b.full_name as fullName, b.email, b.phone, b.address, b.plz, b.city,
-              s.date, s.time, s.duration, s.id as slotId
-       FROM bookings b
-       JOIN slots s ON s.id = b.slot_id
-       WHERE b.id = ?`,
-      [id]
-    );
-    if (!booking) return res.status(404).json({ error: 'not_found' });
-
-    await db.run(`DELETE FROM bookings WHERE id = ?`, [id]);
-    await db.run(`UPDATE slots SET status = 'free' WHERE id = ?`, [booking.slotId]);
-
-    const when = `${booking.date} ${booking.time}`;
-    const subject = `Termin storniert – ${when}`;
-    const htmlUser = `
-      <p>Guten Tag ${escapeHtml(booking.fullName)},</p>
-      <p>Ihr Termin am <b>${booking.date}</b> um <b>${booking.time}</b> (Dauer ${booking.duration} Min.) wurde storniert.</p>
-      <p><b>Grund:</b> ${escapeHtml(reason)}</p>
-      <p>— ${escapeHtml(process.env.BRAND_NAME || 'MyDienst')}</p>
-    `;
-    const htmlAdmin = `
-      <p>Termin storniert:</p>
-      <ul>
-        <li><b>Kunde:</b> ${escapeHtml(booking.fullName)} (${escapeHtml(booking.email)})</li>
-        <li><b>Telefon:</b> ${escapeHtml(booking.phone || '')}</li>
-        <li><b>Adresse:</b> ${escapeHtml(booking.address || '')}, ${escapeHtml(booking.plz || '')} ${escapeHtml(booking.city || '')}</li>
-        <li><b>Datum/Zeit:</b> ${booking.date} ${booking.time}</li>
-        <li><b>Dauer:</b> ${booking.duration} Min.</li>
-      </ul>
-      <p><b>Grund:</b> ${escapeHtml(reason)}</p>
-    `;
-    try { await sendMail({ to: booking.email, subject, html: htmlUser }); } catch (e) { console.error('mail user', e); }
-    try { await sendMail({ to: process.env.ADMIN_EMAIL, subject: `ADMIN: ${subject}`, html: htmlAdmin }); } catch (e) { console.error('mail admin', e); }
-
+    await run('DELETE FROM bookings WHERE id=?', [req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'server_error' });
+    res.status(500).json({ error: 'booking_delete_failed' });
   }
 });
 
-// ----------------------------------------------------
-// Start
-// ----------------------------------------------------
-migrate().then(() => {
-  app.listen(PORT, () => {
-    console.log(`API running on http://localhost:${PORT}`);
-  });
-}).catch((e) => {
-  console.error('Migration failed', e);
-  process.exit(1);
+// ---------- CSV (admin only) ----------
+app.get('/api/bookings.csv', ensureAdmin, async (_req, res) => {
+  try {
+    const rows = await all(
+      `SELECT b.id as booking_id, s.date, s.time, s.duration,
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
+         FROM bookings b
+         JOIN slots s ON s.id = b.slot_id
+         ORDER BY s.date, s.time`
+    );
+    const header = ['booking_id','date','time','duration','full_name','email','phone','address','plz','city','note','created_at'];
+    const csv = [header.join(',')]
+      .concat(rows.map(r => header.map(h => `"${String(r[h]??'').replace(/"/g,'""')}"`).join(',')))
+      .join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="bookings.csv"');
+    res.send(csv);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('csv_failed');
+  }
 });
+
+// ---------- PRINT (DE) ----------
+app.get('/api/bookings/:id/print', async (req, res) => {
+  try {
+    const row = await get(
+      `SELECT b.*, s.date, s.time, s.duration
+         FROM bookings b JOIN slots s ON s.id=b.slot_id
+        WHERE b.id=?`,
+      [req.params.id]
+    );
+    if (!row) return res.status(404).send('Nicht gefunden');
+
+    const brand = process.env.BRAND_NAME || 'MyDienst GmbH';
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!doctype html><html><head><meta charset="utf-8">
+<title>Terminbestätigung – ${brand}</title>
+<style>
+  body{font-family:Arial, sans-serif; margin:40px;}
+  h1{margin:0 0 10px}
+  .box{border:1px solid #ddd; padding:16px; border-radius:12px}
+  .grid{display:grid; grid-template-columns:160px 1fr; gap:8px 16px}
+  .muted{color:#666}
+  button{padding:8px 14px; border-radius:8px; border:1px solid #ccc; background:#f8f8f8}
+</style></head><body>
+  <h1>${brand} – Terminbestätigung</h1>
+  <p class="muted">Buchungsnummer #${row.id}</p>
+  <div class="box">
+    <div class="grid">
+      <div><b>Datum</b></div><div>${row.date}</div>
+      <div><b>Uhrzeit</b></div><div>${row.time}</div>
+      <div><b>Dauer</b></div><div>${row.duration} Min.</div>
+      <div><b>Name</b></div><div>${row.full_name}</div>
+      <div><b>E-Mail</b></div><div>${row.email}</div>
+      <div><b>Telefon</b></div><div>${row.phone}</div>
+      <div><b>Adresse</b></div><div>${row.address}</div>
+      <div><b>PLZ</b></div><div>${row.plz}</div>
+      <div><b>Stadt</b></div><div>${row.city}</div>
+      <div><b>Notiz</b></div><div>${row.note || '–'}</div>
+      <div><b>Erstellt am</b></div><div>${row.created_at}</div>
+    </div>
+  </div>
+  <p><button onclick="window.print()">Drucken</button></p>
+</body></html>`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('print_failed');
+  }
+});
+
+app.listen(PORT, () => console.log(`API running on http://localhost:${PORT}`));
