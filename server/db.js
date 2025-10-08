@@ -35,3 +35,13 @@ export const get = (sql, params = []) =>
   new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
   });
+export async function migrate() {
+  // ... ako imaš schema.sql, pokreni ga
+  // ...
+
+  // Osiguraj kolone u bookings
+  const cols = await db.all(`PRAGMA table_info(bookings)`);
+  const names = cols.map(c => c.name);
+  if (!names.includes('plz'))  await db.exec(`ALTER TABLE bookings ADD COLUMN plz TEXT;`);
+  if (!names.includes('city')) await db.exec(`ALTER TABLE bookings ADD COLUMN city TEXT;`);
+}
