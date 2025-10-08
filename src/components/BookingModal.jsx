@@ -11,11 +11,11 @@ export default function BookingModal({ slot, onClose, onSubmit }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!fullName || !email || !phone || !address || !plz || !city) {
+    if (!fullName || !email || !phone || !address || !plz || !city ) {
       alert("Bitte füllen Sie alle Pflichtfelder aus (Name, E-Mail, Telefon, Adresse, PLZ, Stadt).");
       return;
     }
-    onSubmit({ fullName, email, phone, address, plz, city, note });
+    onSubmit({ fullName, email, phone, address, plz, city });
   };
 
   return (
