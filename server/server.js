@@ -10,11 +10,23 @@ import bcrypt from 'bcryptjs';
 import { all, get, migrate, run } from './db.js';
 import { makeTransport, bookingEmails } from './email.js';
 import { issueToken, verifyToken } from './auth.js';
+import { sendMail } from './email.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 5174);
+
+const { sendMail } = require('./email'); // ili import prema tvom modulu
+
+const escapeHtml = (s = '') =>
+  String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
 
 // DB migracije (kreira tabele ako ne postoje)
 migrate();

@@ -37,7 +37,7 @@ export default function AdminDashboard({ onLogout }) {
               <th className="py-2 pr-4">Name</th>
               <th className="py-2 pr-4">E-Mail</th>
               <th className="py-2 pr-4">Telefon</th>
-              <th className="py-2 pr-4">Adresse</th>
+              <th className="py-2 pr-4">Adresse</th> {/* NEW */}
               <th className="py-2 pr-4">Aktionen</th>
             </tr>
           </thead>
@@ -50,7 +50,7 @@ export default function AdminDashboard({ onLogout }) {
                 <td className="py-2 pr-4">{r.full_name}</td>
                 <td className="py-2 pr-4">{r.email}</td>
                 <td className="py-2 pr-4">{r.phone || "-"}</td>
-                <td className="py-2 pr-4">{r.address || "-"}</td>
+                <td className="py-2 pr-4 break-words max-w-xs">{r.address || "-"}</td> {/* NEW */}
                 <td className="py-2 pr-4">
                   <button
                     onClick={() => deleteBookingAdmin(r.id).then(load)}
@@ -63,7 +63,7 @@ export default function AdminDashboard({ onLogout }) {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td className="py-6 text-slate-500" colSpan={7}>
+                <td className="py-6 text-slate-500" colSpan={8}>
                   Keine Reservierungen.
                 </td>
               </tr>
