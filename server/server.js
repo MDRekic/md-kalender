@@ -17,7 +17,7 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT || 5174);
 
-const { sendMail } = require('./email'); // ili import prema tvom modulu
+
 
 const escapeHtml = (s = '') =>
   String(s)
