@@ -14,7 +14,7 @@ export default function App() {
         {showNav && (
           <header className="mb-6 flex items-end justify-between">
             <div>
-              <h1 className="text-2xl font-bold">MyDienst – Vizualni kalendar</h1>
+              <h1 className="text-2xl font-bold">MyDienst – Vizualni kalender</h1>
               <p className="text-slate-600">
                 Glasfaser Einblasen & Montage · ručni unos termina (puna kontrola).
               </p>
