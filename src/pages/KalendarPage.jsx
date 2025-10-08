@@ -29,7 +29,7 @@ export default function KalendarPage() {
     }
   }
 
-  async function submitBooking({ fullName, email, phone, address, note, address, plz, city })  {
+    async function submitBooking({ fullName, email, phone, address, plz, city, note }) {
     if (!fullName || !email || !phone || !address || !plz || !city) {
       alert("Bitte füllen Sie alle Pflichtfelder aus.");
       return;

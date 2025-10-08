@@ -213,10 +213,10 @@ app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
 // ---------- BOOKINGS (public POST) ----------
 app.post('/api/bookings', async (req, res) => {
   try {
-    const { slotId, fullName, email, phone, address, plz, city, note } = req.body || {};
-    if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
-      return res.status(400).json({ error: 'missing_fields' });
-    }
+         const { slotId, fullName, email, phone, address, plz, city, note } = req.body || {};
+        if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
+          return res.status(400).json({ error: 'missing_fields' });
+        }
 
     const slot = await get('SELECT * FROM slots WHERE id=?', [slotId]);
     if (!slot) return res.status(404).json({ error: 'slot_not_found' });
@@ -224,7 +224,7 @@ app.post('/api/bookings', async (req, res) => {
 
     const { id: bookingId } = await run(
       'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note) VALUES (?,?,?,?,?,?,?,?)',
-      [slotId, fullName, email, phone, address, plz, city, note || null]
+        [slotId, fullName, email, phone, address, plz, city, note || null]  
     );
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
 
