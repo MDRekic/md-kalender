@@ -52,6 +52,17 @@ ensureAdminUser().catch(console.error);
 // security & parsers
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(express.json());
+
+// ✅ Middleware za admin provjeru
+function requireAdmin(req, res, next) {
+  const user = req.user;
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+  next();
+}
+
+
 app.use(cookieParser());
 
 // CORS (u produkciji postavi CORS_ORIGIN na tvoj domen)
