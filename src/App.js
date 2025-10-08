@@ -17,7 +17,7 @@ export default function App() {
            {  /* <h1 className="text-2xl font-bold">MyDienst – Vizualni kalender</h1> */}
            <img src="/mydienst-logo.png" alt="MyDienst" style={{ height: '50px', objectFit: 'contain' }}/>             
               <p className="text-slate-600">
-                Glasfaser Einblasen & Montage · ručni unos termina (puna kontrola).
+                Glasfaser Einblasen & Montage.
               </p>
             </div>
             <nav className="flex gap-2">
