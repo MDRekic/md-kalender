@@ -29,8 +29,8 @@ export default function KalendarPage() {
     }
   }
 
-  async function submitBooking({ fullName, email, phone, address, note }) {
-    if (!fullName || !email || !phone || !address) {
+  async function submitBooking({ fullName, email, phone, address, note, address, plz, city })  {
+    if (!fullName || !email || !phone || !address || !plz || !city) {
       alert("Bitte füllen Sie alle Pflichtfelder aus.");
       return;
     }
@@ -41,7 +41,9 @@ export default function KalendarPage() {
         email,
         phone,
         address,
-        note,
+        plz,
+        city,
+        note
       });
       setBookingOpen(false);
       setSlotForBooking(null);
