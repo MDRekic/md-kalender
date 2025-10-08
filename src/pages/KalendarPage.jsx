@@ -10,6 +10,7 @@ export default function KalendarPage() {
   const [slots, setSlots] = useState([]);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [slotForBooking, setSlotForBooking] = useState(null);
+  const daySlotsFree = daySlots.filter((s) => s.status === "free");
 
   const todayStr = useMemo(() => ymd(new Date()), []);
 
@@ -73,42 +74,36 @@ export default function KalendarPage() {
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="mb-3 text-lg font-semibold">Termine – {selectedDate}</h2>
 
-          {daySlots.length === 0 ? (
-            <p className="text-slate-500 mt-2">Keine Termine an diesem Tag.</p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {daySlots.map((s) => (
-                <li
-                  key={s.id}
-                  className="flex items-center justify-between rounded-xl border border-slate-200 p-3"
-                >
-                  <div>
-                    <div className="font-medium">
-                      {s.time} · {s.duration} Min.
-                    </div>
-                    <div className="text-sm">
-                      Status:{" "}
-                      {s.status === "free" ? (
-                        <span className="text-emerald-600">frei</span>
-                      ) : (
-                        <span className="text-amber-600">reserviert</span>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    {s.status === "free" && (
-                      <button
-                        onClick={() => openBooking(s)}
-                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700"
-                      >
-                        Buchen
-                      </button>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+         {daySlotsFree.length === 0 ? (
+          <p className="text-slate-500 mt-2">Keine freien Termine an diesem Tag.</p>
+        ) : (
+         <ul className="mt-3 space-y-2">
+    {daySlotsFree.map((s) => (
+      <li
+        key={s.id}
+        className="flex items-center justify-between rounded-xl border border-slate-200 p-3"
+      >
+        <div>
+          <div className="font-medium">
+            {s.time} · {s.duration} Min.
+          </div>
+          <div className="text-sm">
+            {/* po želji možeš potpuno izostaviti status */}
+            Status: <span className="text-emerald-600">frei</span>
+          </div>
+        </div>
+        <div>
+          <button
+            onClick={() => openBooking(s)}
+            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700"
+          >
+            Buchen
+          </button>
+        </div>
+      </li>
+    ))}
+  </ul>
+)}
         </section>
       </div>
 
