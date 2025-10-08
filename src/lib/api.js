@@ -27,5 +27,10 @@ export const authLogout  = () => jfetch('/api/auth/logout', { method:'POST' });
 export const createSlot  = (s) => jfetch('/api/slots', { method:'POST', body: JSON.stringify(s) });
 export const deleteSlot  = (id) => jfetch(`/api/slots/${id}`, { method:'DELETE' });
 export const listBookingsAdmin = () => jfetch('/api/admin/bookings');
-export const deleteBookingAdmin = (id) => jfetch(`/api/admin/bookings/${id}`, { method:'DELETE' });
+export const deleteBookingAdmin = (id, reason) =>
+  jfetch(`/api/admin/bookings/${id}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ reason }),
+  });
+
 export const csvUrl      = () => `${BASE}/api/bookings.csv`;

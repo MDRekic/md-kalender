@@ -16,6 +16,18 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT || 5174);
 
+const { sendMail } = require('./email'); // ili import prema tvom modulu
+
+function escapeHtml(s = '') {
+  return String(s)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+
 // DB migracije (kreira tabele ako ne postoje)
 migrate();
 
@@ -278,15 +290,74 @@ app.get('/api/admin/bookings', ensureAdmin, async (_req, res) => {
   }
 });
 
-app.delete('/api/admin/bookings/:id', ensureAdmin, async (req, res) => {
+// DELETE /api/admin/bookings/:id
+app.delete('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  const { reason } = req.body || {};
+
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: 'reason_required' });
+  }
+
   try {
-    await run('DELETE FROM bookings WHERE id=?', [req.params.id]);
+    // 1) učitaj booking (da dobiješ email kupca i slot info)
+    const booking = await db.get(
+      `SELECT b.id, b.fullName, b.email, b.phone, b.address, b.plz, b.city,
+              s.date, s.time, s.duration, s.id as slotId
+       FROM bookings b
+       JOIN slots s ON s.id = b.slotId
+       WHERE b.id = ?`,
+      [id]
+    );
+    if (!booking) return res.status(404).json({ error: 'not_found' });
+
+    // 2) obriši booking i oslobodi slot
+    await db.run(`DELETE FROM bookings WHERE id = ?`, [id]);
+    await db.run(`UPDATE slots SET status = 'free' WHERE id = ?`, [booking.slotId]);
+
+    // 3) e-mailovi
+    const when = `${booking.date} ${booking.time}`;
+    const subject = `Termin storniert – ${when}`;
+    const html = `
+      <p>Guten Tag ${booking.fullName},</p>
+      <p>Ihr Termin am <b>${booking.date}</b> um <b>${booking.time}</b> (Dauer ${booking.duration} Min.) wurde storniert.</p>
+      <p><b>Grund:</b> ${escapeHtml(reason)}</p>
+      <p>Bei Rückfragen melden Sie sich bitte bei uns.</p>
+      <p>— ${process.env.BRAND_NAME || 'MyDienst'}</p>
+    `;
+
+    // pošalji kupcu
+    await sendMail({
+      to: booking.email,
+      subject,
+      html,
+    });
+
+    // pošalji adminu (kopija s detaljima)
+    const adminHtml = `
+      <p>Folgender Termin wurde storniert:</p>
+      <ul>
+        <li><b>Kunde:</b> ${escapeHtml(booking.fullName)} (${escapeHtml(booking.email)})</li>
+        <li><b>Telefon:</b> ${escapeHtml(booking.phone || '')}</li>
+        <li><b>Adresse:</b> ${escapeHtml(booking.address || '')}, ${escapeHtml(booking.plz || '')} ${escapeHtml(booking.city || '')}</li>
+        <li><b>Datum/Zeit:</b> ${booking.date} ${booking.time}</li>
+        <li><b>Dauer:</b> ${booking.duration} Min.</li>
+      </ul>
+      <p><b>Grund:</b> ${escapeHtml(reason)}</p>
+    `;
+    await sendMail({
+      to: process.env.ADMIN_EMAIL,
+      subject: `ADMIN: ${subject}`,
+      html: adminHtml,
+    });
+
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'booking_delete_failed' });
+    res.status(500).json({ error: 'server_error' });
   }
 });
+
 
 // ---------- CSV (admin only) ----------
 app.get('/api/bookings.csv', ensureAdmin, async (_req, res) => {
