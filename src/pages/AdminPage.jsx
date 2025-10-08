@@ -27,7 +27,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!isAdmin) return;
-    listSlots(selectedDate).then(setSlots).catch(() => setSlots([]));
+    listSlots().then(setSlots).catch(() => setSlots([]));
   }, [isAdmin, selectedDate]);
 
   const daySlots = useMemo(

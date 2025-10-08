@@ -13,11 +13,14 @@ export default function KalendarPage() {
 
   const todayStr = useMemo(() => ymd(new Date()), []);
 
+  // Učitaj sve slotove (ili možeš kasnije dodati range po mjesecu)
   useEffect(() => {
-    listSlots(selectedDate).then(setSlots).catch(() => setSlots([]));
-  }, [selectedDate]);
+    listSlots()
+      .then(setSlots)
+      .catch(() => setSlots([]));
+  }, [activeDate]); // kad listaš mjesece, možemo opet povući (ili ostaviti prazno ako želiš sve)
 
-  // Svi slotovi za taj dan (sortirani)
+  // Slotovi za odabrani dan
   const daySlots = useMemo(
     () =>
       slots
@@ -26,7 +29,7 @@ export default function KalendarPage() {
     [slots, selectedDate]
   );
 
-  // Samo slobodni slotovi za javni prikaz
+  // Samo slobodni slotovi za desnu listu
   const daySlotsFree = useMemo(
     () => daySlots.filter((s) => s.status === "free"),
     [daySlots]
@@ -57,7 +60,8 @@ export default function KalendarPage() {
       });
       setBookingOpen(false);
       setSlotForBooking(null);
-      listSlots(selectedDate).then(setSlots);
+      // refresh
+      listSlots().then(setSlots);
       if (bookingId) window.open(printUrl(bookingId), "_blank");
     } catch (e) {
       alert("Buchung fehlgeschlagen.");
@@ -76,7 +80,7 @@ export default function KalendarPage() {
             selectedDate={selectedDate}
             onSelectDate={(d) => setSelectedDate(ymd(d))}
             todayStr={todayStr}
-            slots={slots}
+            slots={slots} // sada cijeli set slotova, ne samo za 1 dan
           />
         </section>
 
@@ -96,7 +100,6 @@ export default function KalendarPage() {
                     <div className="font-medium">
                       {s.time} · {s.duration} Min.
                     </div>
-                    {/* Ako ne želiš nikakav status tekst, obriši cijeli ovaj div */}
                     <div className="text-sm">
                       Status: <span className="text-emerald-600">frei</span>
                     </div>

@@ -11,7 +11,7 @@ export default function CalendarMonth({
   slots = [],
 }) {
   const year = activeDate.getFullYear();
-  const month = activeDate.getMonth(); // 0-11
+  const month = activeDate.getMonth();
 
   const first = new Date(year, month, 1);
   const last = new Date(year, month + 1, 0);
@@ -21,15 +21,12 @@ export default function CalendarMonth({
     year: "numeric",
   });
 
-  // Montag ist der erste Wochentag
-  const startPad = (first.getDay() + 6) % 7; // Mo=0, So=6
+  const startPad = (first.getDay() + 6) % 7; // Mo=0
   const daysInMonth = last.getDate();
 
   const days = [];
   for (let i = 0; i < startPad; i++) days.push(null);
-  for (let d = 1; d <= daysInMonth; d++) {
-    days.push(new Date(year, month, d));
-  }
+  for (let d = 1; d <= daysInMonth; d++) days.push(new Date(year, month, d));
 
   const weekdayShort = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
@@ -43,7 +40,6 @@ export default function CalendarMonth({
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      {/* Header */}
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-semibold capitalize">{title}</h2>
         <div className="flex gap-2">
@@ -64,7 +60,6 @@ export default function CalendarMonth({
         </div>
       </div>
 
-      {/* Weekdays */}
       <div className="mb-1 grid grid-cols-7 gap-1 text-center text-xs text-slate-500">
         {weekdayShort.map((w) => (
           <div key={w} className="py-1">
@@ -73,23 +68,31 @@ export default function CalendarMonth({
         ))}
       </div>
 
-      {/* Days */}
       <div className="grid grid-cols-7 gap-1">
         {days.map((d, i) => {
-          if (!d) return <div key={`pad-${i}`} className="h-24 rounded-xl border border-transparent" />;
+          if (!d)
+            return (
+              <div key={`pad-${i}`} className="h-24 rounded-xl border border-transparent" />
+            );
+
           const key = ymd(d);
           const isToday = key === todayStr;
           const isSelected = key === selectedDate;
           const { total, free } = countsForDate(d);
+
+          // klase prema statusu
+          let colorClasses = "border-slate-200 bg-white";
+          if (free > 0) colorClasses = "border-emerald-400 bg-emerald-50";
+          else if (total > 0 && free === 0) colorClasses = "border-rose-300 bg-rose-50";
 
           return (
             <button
               key={key}
               onClick={() => onSelectDate(d)}
               className={[
-                "h-24 rounded-xl border p-2 text-left",
-                isSelected ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-white",
-                "hover:bg-slate-50",
+                "h-24 rounded-xl border p-2 text-left hover:bg-slate-50",
+                colorClasses,
+                isSelected ? "ring-2 ring-emerald-400 ring-offset-1" : "",
               ].join(" ")}
             >
               <div className="flex items-center justify-between">
@@ -102,10 +105,14 @@ export default function CalendarMonth({
               </div>
 
               {total === 0 ? (
-                <div className="mt-5 text-xs text-slate-400">Keine Slots</div>
+                <div className="mt-5 text-xs text-slate-400">Keine Termine</div>
+              ) : free === 0 ? (
+                <div className="mt-5 text-xs text-rose-700">Keine freien Termine</div>
               ) : (
                 <div className="mt-4 text-[11px] leading-4 text-slate-700">
-                  <div>Frei: <b>{free}</b></div>
+                  <div>
+                    Frei: <b>{free}</b>
+                  </div>
                   <div className="text-slate-500">Gesamt: {total}</div>
                 </div>
               )}
