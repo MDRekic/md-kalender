@@ -10,15 +10,14 @@ import bcrypt from 'bcryptjs';
 import { all, get, migrate, run } from './db.js';
 import { makeTransport, bookingEmails } from './email.js';
 import { issueToken, verifyToken } from './auth.js';
-import { sendMail } from './email.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 5174);
 
-
-
+// ───────────────────────────────────────────────────────────────────────────────
+// helpers
 const escapeHtml = (s = '') =>
   String(s)
     .replace(/&/g, '&amp;')
@@ -27,11 +26,10 @@ const escapeHtml = (s = '') =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 
-
-// DB migracije (kreira tabele ako ne postoje)
+// DB migracije
 migrate();
 
-// seed admin user ako ga nema (uzima iz .env, fallback je "admin"/hash("admin"))
+// seed admin user ako ne postoji
 async function ensureAdminUser() {
   const username = process.env.ADMIN_USER || 'admin';
   const envHash = process.env.ADMIN_PASS_HASH || '';
@@ -52,20 +50,9 @@ ensureAdminUser().catch(console.error);
 // security & parsers
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(express.json());
-
-// ✅ Middleware za admin provjeru
-function requireAdmin(req, res, next) {
-  const user = req.user;
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access denied' });
-  }
-  next();
-}
-
-
 app.use(cookieParser());
 
-// CORS (u produkciji postavi CORS_ORIGIN na tvoj domen)
+// CORS
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
@@ -74,11 +61,11 @@ app.use(
 );
 
 // rate limit
-const authLimiter = rateLimit({ windowMs: 60_000, max: 20 });
-app.use('/api/auth', authLimiter);
+app.use('/api/auth', rateLimit({ windowMs: 60_000, max: 20 }));
 app.use('/api/bookings', rateLimit({ windowMs: 60_000, max: 100 }));
 
-// --- helper middleware ---
+// ───────────────────────────────────────────────────────────────────────────────
+// admin auth helper
 function ensureAdmin(req, res, next) {
   const token = req.cookies?.admtk;
   const decoded = token && verifyToken(token, process.env.JWT_SECRET || 'secret');
@@ -87,13 +74,13 @@ function ensureAdmin(req, res, next) {
   next();
 }
 
-// ---------- AUTH ----------
+// ───────────────────────────────────────────────────────────────────────────────
+// AUTH
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'missing_fields' });
 
-    // čitanje iz DB
     const user = await get(
       'SELECT id, username, password_hash, role FROM users WHERE username=?',
       [username]
@@ -110,7 +97,7 @@ app.post('/api/auth/login', async (req, res) => {
     res.cookie('admtk', token, {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false, // true kad imaš HTTPS
+      secure: false,             // stavi true kad ideš full HTTPS iza proxyja
       maxAge: 7 * 24 * 3600 * 1000,
     });
     res.json({ ok: true });
@@ -131,7 +118,8 @@ app.get('/api/auth/me', (req, res) => {
   res.json({ admin: !!decoded?.admin, user: decoded || null });
 });
 
-// ---------- (opciono) USER MANAGEMENT (admin) ----------
+// ───────────────────────────────────────────────────────────────────────────────
+// USER MANAGEMENT (opciono)
 app.post('/api/admin/users', ensureAdmin, async (req, res) => {
   try {
     const { username, password, role = 'admin', email = null } = req.body || {};
@@ -189,7 +177,8 @@ app.delete('/api/admin/users/:id', ensureAdmin, async (req, res) => {
   }
 });
 
-// ---------- SLOTS ----------
+// ───────────────────────────────────────────────────────────────────────────────
+// SLOTS
 app.get('/api/slots', async (req, res) => {
   try {
     const { date } = req.query;
@@ -233,13 +222,14 @@ app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
   }
 });
 
-// ---------- BOOKINGS (public POST) ----------
+// ───────────────────────────────────────────────────────────────────────────────
+// BOOKINGS (public POST)
 app.post('/api/bookings', async (req, res) => {
   try {
-         const { slotId, fullName, email, phone, address, plz, city, note } = req.body || {};
-        if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
-          return res.status(400).json({ error: 'missing_fields' });
-        }
+    const { slotId, fullName, email, phone, address, plz, city, note } = req.body || {};
+    if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
+      return res.status(400).json({ error: 'missing_fields' });
+    }
 
     const slot = await get('SELECT * FROM slots WHERE id=?', [slotId]);
     if (!slot) return res.status(404).json({ error: 'slot_not_found' });
@@ -247,11 +237,11 @@ app.post('/api/bookings', async (req, res) => {
 
     const { id: bookingId } = await run(
       'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note) VALUES (?,?,?,?,?,?,?,?)',
-        [slotId, fullName, email, phone, address, plz, city, note || null]  
+      [slotId, fullName, email, phone, address, plz, city, note || null]
     );
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
 
-    // ✉️ email-notifikacije
+    // e-mail: potvrda
     const transport = makeTransport();
     const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
     const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
@@ -286,13 +276,14 @@ app.post('/api/bookings', async (req, res) => {
   }
 });
 
-// ---------- ADMIN BOOKINGS LIST ----------
+// ADMIN – list
 app.get('/api/admin/bookings', ensureAdmin, async (_req, res) => {
   try {
     const rows = await all(
-      `SELECT b.id, s.date, s.time, s.duration, b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
-       FROM bookings b JOIN slots s ON s.id = b.slot_id
-       ORDER BY s.date, s.time`
+      `SELECT b.id, s.date, s.time, s.duration,
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
+         FROM bookings b JOIN slots s ON s.id = b.slot_id
+         ORDER BY s.date, s.time`
     );
     res.json(rows);
   } catch (e) {
@@ -301,66 +292,72 @@ app.get('/api/admin/bookings', ensureAdmin, async (_req, res) => {
   }
 });
 
-// DELETE /api/admin/bookings/:id
-app.delete('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
-  const id = req.params.id;
-  const { reason } = req.body || {};
-
-  if (!reason || !reason.trim()) {
-    return res.status(400).json({ error: 'reason_required' });
-  }
-
+// ADMIN – delete booking with reason + emails
+app.delete('/api/admin/bookings/:id', ensureAdmin, async (req, res) => {
   try {
-    // 1) učitaj booking (da dobiješ email kupca i slot info)
-    const booking = await db.get(
-      `SELECT b.id, b.fullName, b.email, b.phone, b.address, b.plz, b.city,
-              s.date, s.time, s.duration, s.id as slotId
-       FROM bookings b
-       JOIN slots s ON s.id = b.slotId
-       WHERE b.id = ?`,
+    const id = req.params.id;
+    const { reason } = req.body || {};
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'reason_required' });
+    }
+
+    const b = await get(
+      `SELECT b.id, b.full_name, b.email, b.phone, b.address, b.plz, b.city,
+              s.id AS slot_id, s.date, s.time, s.duration
+         FROM bookings b
+         JOIN slots s ON s.id = b.slot_id
+        WHERE b.id = ?`,
       [id]
     );
-    if (!booking) return res.status(404).json({ error: 'not_found' });
+    if (!b) return res.status(404).json({ error: 'not_found' });
 
-    // 2) obriši booking i oslobodi slot
-    await db.run(`DELETE FROM bookings WHERE id = ?`, [id]);
-    await db.run(`UPDATE slots SET status = 'free' WHERE id = ?`, [booking.slotId]);
+    // obriši i oslobodi slot
+    await run('DELETE FROM bookings WHERE id=?', [b.id]);
+    await run('UPDATE slots SET status="free" WHERE id=?', [b.slot_id]);
 
-    // 3) e-mailovi
-    const when = `${booking.date} ${booking.time}`;
-    const subject = `Termin storniert – ${when}`;
-    const html = `
-      <p>Guten Tag ${booking.fullName},</p>
-      <p>Ihr Termin am <b>${booking.date}</b> um <b>${booking.time}</b> (Dauer ${booking.duration} Min.) wurde storniert.</p>
+    // email obavijesti
+    const brand = process.env.BRAND_NAME || 'MyDienst';
+    const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
+    const subject = `Termin storniert – ${b.date} ${b.time}`;
+
+    const htmlInvitee = `
+      <p>Guten Tag ${escapeHtml(b.full_name)},</p>
+      <p>Ihr Termin am <b>${b.date}</b> um <b>${b.time}</b> (Dauer ${b.duration} Min.) wurde storniert.</p>
       <p><b>Grund:</b> ${escapeHtml(reason)}</p>
       <p>Bei Rückfragen melden Sie sich bitte bei uns.</p>
-      <p>— ${process.env.BRAND_NAME || 'MyDienst'}</p>
+      <p>— ${escapeHtml(brand)}</p>
     `;
 
-    // pošalji kupcu
-    await sendMail({
-      to: booking.email,
-      subject,
-      html,
-    });
-
-    // pošalji adminu (kopija s detaljima)
-    const adminHtml = `
-      <p>Folgender Termin wurde storniert:</p>
+    const htmlAdmin = `
+      <p>Ein Termin wurde storniert:</p>
       <ul>
-        <li><b>Kunde:</b> ${escapeHtml(booking.fullName)} (${escapeHtml(booking.email)})</li>
-        <li><b>Telefon:</b> ${escapeHtml(booking.phone || '')}</li>
-        <li><b>Adresse:</b> ${escapeHtml(booking.address || '')}, ${escapeHtml(booking.plz || '')} ${escapeHtml(booking.city || '')}</li>
-        <li><b>Datum/Zeit:</b> ${booking.date} ${booking.time}</li>
-        <li><b>Dauer:</b> ${booking.duration} Min.</li>
+        <li><b>Kunde:</b> ${escapeHtml(b.full_name)} (${escapeHtml(b.email)})</li>
+        <li><b>Telefon:</b> ${escapeHtml(b.phone || '')}</li>
+        <li><b>Adresse:</b> ${escapeHtml(b.address || '')}, ${escapeHtml(b.plz || '')} ${escapeHtml(b.city || '')}</li>
+        <li><b>Datum/Zeit:</b> ${b.date} ${b.time}</li>
+        <li><b>Dauer:</b> ${b.duration} Min.</li>
+        <li><b>Grund:</b> ${escapeHtml(reason)}</li>
       </ul>
-      <p><b>Grund:</b> ${escapeHtml(reason)}</p>
     `;
-    await sendMail({
-      to: process.env.ADMIN_EMAIL,
-      subject: `ADMIN: ${subject}`,
-      html: adminHtml,
-    });
+
+    const transport = makeTransport();
+    await transport.sendMail({
+      from: process.env.SMTP_USER,
+      to: b.email,
+      subject,
+      html: htmlInvitee,
+      replyTo,
+    }).catch(console.error);
+
+    if (process.env.ADMIN_EMAIL) {
+      await transport.sendMail({
+        from: process.env.SMTP_USER,
+        to: process.env.ADMIN_EMAIL,
+        subject: `ADMIN: ${subject}`,
+        html: htmlAdmin,
+        replyTo,
+      }).catch(console.error);
+    }
 
     res.json({ ok: true });
   } catch (e) {
@@ -369,8 +366,7 @@ app.delete('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
   }
 });
 
-
-// ---------- CSV (admin only) ----------
+// CSV
 app.get('/api/bookings.csv', ensureAdmin, async (_req, res) => {
   try {
     const rows = await all(
@@ -393,7 +389,7 @@ app.get('/api/bookings.csv', ensureAdmin, async (_req, res) => {
   }
 });
 
-// ---------- PRINT (DE) ----------
+// PRINT
 app.get('/api/bookings/:id/print', async (req, res) => {
   try {
     const row = await get(

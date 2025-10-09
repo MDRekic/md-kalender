@@ -5,6 +5,7 @@ import AdminLogin from "../components/AdminLogin";
 import AdminDashboard from "../components/AdminDashboard";
 import CalendarMonth from "../components/CalendarMonth";
 import AdminQuickAdd from "../components/AdminQuickAdd";
+import { adminDeleteBooking } from "../lib/api";
 
 import { addMonths, ymd } from "../lib/date";
 import {
@@ -34,6 +35,31 @@ export default function AdminPage() {
     () => slots.filter((s) => s.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time)),
     [slots, selectedDate]
   );
+
+  async function handleDelete(b) {
+  const reason = prompt("Bitte geben Sie den Stornierungsgrund ein:");
+  if (reason === null) return;             // cancel
+  if (!reason.trim()) {
+    alert("Grund ist erforderlich.");
+    return;
+  }
+  try {
+    await adminDeleteBooking(b.id, reason.trim());
+    // osvježi listu nakon brisanja (pretpostavljam da već imaš fetchBookings())
+    fetchBookings();
+  } catch (e) {
+    console.error(e);
+    alert("Löschen fehlgeschlagen.");
+  }
+}
+
+// ... u renderu, u tabeli:
+<button
+  className="rounded border px-3 py-1 text-sm hover:bg-slate-50"
+  onClick={() => handleDelete(booking)}
+>
+  Löschen
+</button>
 
   async function handleLogin(u, p) {
     try {
