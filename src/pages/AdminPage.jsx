@@ -1,3 +1,4 @@
+// client/src/pages/AdminPage.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -5,7 +6,6 @@ import AdminLogin from "../components/AdminLogin";
 import AdminDashboard from "../components/AdminDashboard";
 import CalendarMonth from "../components/CalendarMonth";
 import AdminQuickAdd from "../components/AdminQuickAdd";
-import { adminDeleteBooking } from "../lib/api";
 
 import { addMonths, ymd } from "../lib/date";
 import {
@@ -22,48 +22,31 @@ export default function AdminPage() {
 
   const todayStr = useMemo(() => ymd(new Date()), []);
 
+  // helper za reload slotova
+  const reloadSlots = async () => {
+    try {
+      const all = await listSlots(); // sve slotove
+      setSlots(all);
+    } catch {
+      setSlots([]);
+    }
+  };
+
   useEffect(() => {
     authMe().then((r) => setIsAdmin(!!r.admin)).catch(() => setIsAdmin(false));
   }, []);
 
   useEffect(() => {
     if (!isAdmin) return;
-    listSlots().then(setSlots).catch(() => setSlots([]));
-  }, [isAdmin, selectedDate]);
+    reloadSlots();
+  }, [isAdmin, selectedDate]); // selectedDate čisto da UI bude svjež
 
   const daySlots = useMemo(
-    () => slots.filter((s) => s.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time)),
+    () => slots
+      .filter((s) => s.date === selectedDate)
+      .sort((a, b) => a.time.localeCompare(b.time)),
     [slots, selectedDate]
   );
-
-async function handleDeleteBooking(b) {
-  const reason = prompt('Bitte Stornogrund eingeben (Pflichtfeld):');
-  if (reason == null) return;            // korisnik je odustao (Cancel)
-  if (!reason.trim()) {
-    alert('Stornogrund ist erforderlich.');
-    return;
-  }
-  try {
-    await adminDeleteBooking(b.id, reason);
-    // nakon brisanja: osvježi listu termina + slotova za odabrani dan
-    await Promise.all([
-      // ako već imaš ove funkcije u komponenti – pozovi ih:
-      fetchBookings(),     // osvježi /api/admin/bookings
-      reloadDaySlots?.(),  // osvježi /api/slots?date=...
-    ]);
-  } catch (e) {
-    console.error(e);
-    alert('Löschen fehlgeschlagen.');
-  }
-}
-
-// ... u renderu, u tabeli:
-<button
-  onClick={() => handleDeleteBooking(row)}   // row ili b – tvoj objekat rezervacije
-  className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50"
->
-  Löschen
-</button>
 
   async function handleLogin(u, p) {
     try {
@@ -80,9 +63,15 @@ async function handleDeleteBooking(b) {
   }
 
   async function addSlot(timeStr, durationMin = 120) {
-    if (!/^\d{2}:\d{2}$/.test(timeStr)) return alert("Uhrzeit im Format HH:MM (z. B. 08:10).");
+    if (!/^\d{2}:\d{2}$/.test(timeStr)) {
+      return alert("Uhrzeit im Format HH:MM (z. B. 08:10).");
+    }
     try {
-      const created = await createSlot({ date: selectedDate, time: timeStr, duration: durationMin });
+      const created = await createSlot({
+        date: selectedDate,
+        time: timeStr,
+        duration: durationMin
+      });
       setSlots((prev) => [...prev, created].sort((a, b) => a.time.localeCompare(b.time)));
     } catch {
       alert("Hinzufügen fehlgeschlagen.");
@@ -100,7 +89,8 @@ async function handleDeleteBooking(b) {
 
   function clearDay() {
     if (!window.confirm("Alle freien Slots für diesen Tag löschen?")) return;
-    listSlots(selectedDate).then(setSlots);
+    // Na brzinu: samo ponovni fetch (pretpostavka da backend ima čistač ili si ručno brisao)
+    reloadSlots();
   }
 
   if (!isAdmin) {
@@ -167,7 +157,7 @@ async function handleDeleteBooking(b) {
           <AdminQuickAdd onAdd={(t, d) => addSlot(t, d)} />
 
           {daySlots.length === 0 ? (
-            <p className="text-slate-500 mt-2">Keine Termine an diesem Tag.</p>
+            <p className="mt-2 text-slate-500">Keine Termine an diesem Tag.</p>
           ) : (
             <ul className="mt-3 space-y-2">
               {daySlots.map((s) => (
@@ -206,7 +196,8 @@ async function handleDeleteBooking(b) {
       </div>
 
       <div className="mt-6">
-        <AdminDashboard onLogout={handleLogout} />
+        {/* AdminDashboard se sam osvježava nakon brisanja i zove onAfterChange da parent obnovi slotove */}
+        <AdminDashboard onAfterChange={reloadSlots} />
       </div>
     </div>
   );

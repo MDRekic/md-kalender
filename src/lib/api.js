@@ -1,43 +1,69 @@
-const BASE = process.env.REACT_APP_API || "";
+// client/src/lib/api.js
 
-async function jfetch(url, opts={}) {
-  const r = await fetch(BASE + url, {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(opts.headers||{}) },
-    ...opts,
-  });
-  if (!r.ok) throw new Error(await r.text());
-  return /json/.test(r.headers.get('content-type')||'') ? r.json() : r.text();
+const BASE = ""; // isti origin (nginx reverse proxy vodi na backend)
+
+async function jfetch(method, path, data) {
+  const opts = {
+    method,
+    credentials: "include",
+    headers: {}
+  };
+  if (data && method !== "GET") {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(data);
+  }
+  const res = await fetch(`${BASE}${path}`, opts);
+
+  let text = "";
+  let json = null;
+  try {
+    text = await res.text();
+    json = text ? JSON.parse(text) : null;
+  } catch (_) {}
+
+  if (!res.ok) {
+    throw new Error(json?.error || text || `HTTP ${res.status}`);
+  }
+  return json;
 }
 
-// public
-export const listSlots   = (date) => jfetch(`/api/slots${date?`?date=${encodeURIComponent(date)}`:''}`);
-export const createBooking = (payload) => jfetch('/api/bookings', { method:'POST', body: JSON.stringify(payload) });
-export const printUrl    = (id) => `${BASE}/api/bookings/${id}/print`;
+/* -------- PUBLIC -------- */
+export async function listSlots(date) {
+  const q = date ? `?date=${encodeURIComponent(date)}` : "";
+  return jfetch("GET", `/api/slots${q}`);
+}
 
-// auth
-export const authMe      = () => jfetch('/api/auth/me');
-export const authLogin   = (u,p) => jfetch('/api/auth/login', { method:'POST', body: JSON.stringify({username:u,password:p}) });
-export const authLogout  = () => jfetch('/api/auth/logout', { method:'POST' });
+export async function createBooking(payload) {
+  return jfetch("POST", "/api/bookings", payload);
+}
 
-// admin
-export const createSlot  = (s) => jfetch('/api/slots', { method:'POST', body: JSON.stringify(s) });
-export const deleteSlot  = (id) => jfetch(`/api/slots/${id}`, { method:'DELETE' });
-export const listBookingsAdmin = () => jfetch('/api/admin/bookings');
-export const deleteBookingAdmin = (id) => jfetch(`/api/admin/bookings/${id}`, { method:'DELETE' });
-export const csvUrl      = () => `${BASE}/api/bookings.csv`;
+export function printUrl(bookingId) {
+  return `/api/bookings/${bookingId}/print`;
+}
 
+/* -------- AUTH -------- */
+export async function authMe() {
+  return jfetch("GET", "/api/auth/me");
+}
+export async function authLogin(username, password) {
+  return jfetch("POST", "/api/auth/login", { username, password });
+}
+export async function authLogout() {
+  return jfetch("POST", "/api/auth/logout");
+}
 
+/* -------- ADMIN: SLOTS -------- */
+export async function createSlot({ date, time, duration = 120 }) {
+  return jfetch("POST", "/api/slots", { date, time, duration });
+}
+export async function deleteSlot(id) {
+  return jfetch("DELETE", `/api/slots/${id}`);
+}
+
+/* -------- ADMIN: BOOKINGS -------- */
+export async function adminListBookings() {
+  return jfetch("GET", "/api/admin/bookings");
+}
 export async function adminDeleteBooking(id, reason) {
-  const res = await fetch(`/api/admin/bookings/${id}`, {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' }, // važno da body stigne
-    body: JSON.stringify({ reason }),
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`Delete failed: ${res.status} ${t}`);
-  }
-  return res.json().catch(() => ({}));
+  return jfetch("DELETE", `/api/admin/bookings/${id}`, { reason });
 }
