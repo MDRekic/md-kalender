@@ -36,20 +36,24 @@ export default function AdminPage() {
     [slots, selectedDate]
   );
 
-  async function handleDelete(b) {
-  const reason = prompt("Bitte geben Sie den Stornierungsgrund ein:");
-  if (reason === null) return;             // cancel
+async function handleDeleteBooking(b) {
+  const reason = prompt('Bitte Stornogrund eingeben (Pflichtfeld):');
+  if (reason == null) return;            // korisnik je odustao (Cancel)
   if (!reason.trim()) {
-    alert("Grund ist erforderlich.");
+    alert('Stornogrund ist erforderlich.');
     return;
   }
   try {
-    await adminDeleteBooking(b.id, reason.trim());
-    // osvježi listu nakon brisanja (pretpostavljam da već imaš fetchBookings())
-    fetchBookings();
+    await adminDeleteBooking(b.id, reason);
+    // nakon brisanja: osvježi listu termina + slotova za odabrani dan
+    await Promise.all([
+      // ako već imaš ove funkcije u komponenti – pozovi ih:
+      fetchBookings(),     // osvježi /api/admin/bookings
+      reloadDaySlots?.(),  // osvježi /api/slots?date=...
+    ]);
   } catch (e) {
     console.error(e);
-    alert("Löschen fehlgeschlagen.");
+    alert('Löschen fehlgeschlagen.');
   }
 }
 
