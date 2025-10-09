@@ -59,8 +59,8 @@ async function handleDeleteBooking(b) {
 
 // ... u renderu, u tabeli:
 <button
-  className="rounded border px-3 py-1 text-sm hover:bg-slate-50"
-  onClick={() => handleDelete(booking)}
+  onClick={() => handleDeleteBooking(row)}   // row ili b – tvoj objekat rezervacije
+  className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50"
 >
   Löschen
 </button>
