@@ -5,7 +5,7 @@ import AdminLogin from "../components/AdminLogin";
 import AdminDashboard from "../components/AdminDashboard";
 import CalendarMonth from "../components/CalendarMonth";
 import AdminQuickAdd from "../components/AdminQuickAdd";
-
+import AdminBulkAdd from "../components/AdminBulkAdd";
 import { addMonths, ymd } from "../lib/date";
 import {
   authMe, authLogin, authLogout,
@@ -86,6 +86,28 @@ export default function AdminPage() {
     }
   }
 
+  async function bulkAdd({ dates, time, duration }) {
+  const created = [];
+  for (const d of dates) {
+    try {
+      const c = await createSlot({ date: d, time, duration });
+      created.push(c);
+    } catch (e) {
+      // slot već postoji ili nije moguće kreirati – preskoči
+      // console.warn('skip', d, e);
+    }
+  }
+  if (created.length) {
+    setSlots((prev) =>
+      [...prev, ...created].sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return a.time.localeCompare(b.time);
+      })
+    );
+  }
+  alert(`Fertig. Angelegt: ${created.length} Termin(e).`);
+}
+
   function clearDay() {
     if (!window.confirm("Alle freien Slots für diesen Tag löschen?")) return;
     // ako želiš stvarno brisati sve slobodne slotove za dan,
@@ -155,6 +177,10 @@ export default function AdminPage() {
           </div>
 
           <AdminQuickAdd onAdd={(t, d) => addSlot(t, d)} />
+            <AdminBulkAdd
+             selectedDate={selectedDate}
+            onSubmit={bulkAdd}
+            />
 
           {daySlots.length === 0 ? (
             <p className="text-slate-500 mt-2">Keine Termine an diesem Tag.</p>
