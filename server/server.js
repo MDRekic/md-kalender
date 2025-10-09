@@ -248,37 +248,63 @@ app.post('/api/bookings', async (req, res) => {
     // 3) Mailovi u pozadini, uz try/catch da ne ruše request
 setImmediate(async () => {
   try {
+    const brand   = process.env.BRAND_NAME || 'MyDienst';
     const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
 
-    // Ako već imaš bookingEmails – zadrži ga za generisanje sadržaja:
-    const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
-      brand: process.env.BRAND_NAME || 'MyDienst',
-      toAdmin: process.env.ADMIN_EMAIL,
-      toInvitee: email,
-      slot,
-      booking: { full_name: fullName, email, phone, address, plz, city, note },
-      replyTo,
-    });
+    const when    = `${slot.date} ${slot.time}`;
+    const subject = `Termin bestätigt – ${when}`;
 
-    // ➜ pošalji kupcu
+    const inviteeHtml = `
+      <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.45">
+        <p>Guten Tag ${escapeHtml(fullName)},</p>
+        <p>Ihr Termin wurde erfolgreich gebucht.</p>
+        <ul>
+          <li><b>Datum/Zeit:</b> ${slot.date} ${slot.time}</li>
+          <li><b>Dauer:</b> ${slot.duration} Min.</li>
+          <li><b>Name:</b> ${escapeHtml(fullName)}</li>
+          <li><b>E-Mail:</b> ${escapeHtml(email)}</li>
+          <li><b>Telefon:</b> ${escapeHtml(phone)}</li>
+          <li><b>Adresse:</b> ${escapeHtml(address)}, ${escapeHtml(plz)} ${escapeHtml(city)}</li>
+          ${note ? `<li><b>Notiz:</b> ${escapeHtml(note)}</li>` : ''}
+        </ul>
+        <p>Beste Grüße<br/>${brand}</p>
+      </div>
+    `;
+
+    const adminHtml = `
+      <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.45">
+        <p><b>Neue Buchung</b></p>
+        <ul>
+          <li><b>Datum/Zeit:</b> ${slot.date} ${slot.time} (${slot.duration} Min.)</li>
+          <li><b>Kunde:</b> ${escapeHtml(fullName)}</li>
+          <li><b>E-Mail:</b> ${escapeHtml(email)}</li>
+          <li><b>Telefon:</b> ${escapeHtml(phone)}</li>
+          <li><b>Adresse:</b> ${escapeHtml(address)}, ${escapeHtml(plz)} ${escapeHtml(city)}</li>
+          ${note ? `<li><b>Notiz:</b> ${escapeHtml(note)}</li>` : ''}
+          <li><b>Slot-ID:</b> ${slot.id} · <b>Buchung-ID:</b> ${bookingId}</li>
+        </ul>
+      </div>
+    `;
+
+    // kupac
     await sendMail({
       to: email,
       subject,
-      html: htmlInvitee,
+      html: inviteeHtml,
       replyTo,
     });
 
-    // ➜ pošalji adminu
+    // admin (ako je postavljen)
     if (process.env.ADMIN_EMAIL) {
       await sendMail({
         to: process.env.ADMIN_EMAIL,
         subject: `Neue Buchung – ${subject}`,
-        html: htmlAdmin,
+        html: adminHtml,
         replyTo,
       });
     }
   } catch (err) {
-    console.error('[mail after booking] ', err);
+    console.error('[mail after booking]', err);
   }
 });
 
