@@ -418,17 +418,28 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
 
     // 2) Upisi u canceled_bookings (audit trag)
     await run(
-      `INSERT INTO canceled_bookings
-        (booking_id, slot_date, slot_time, slot_duration,
-         full_name, email, phone, address, plz, city, note,
-         reason, canceled_by, canceled_by_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        row.id, row.slot_date, row.slot_time, row.slot_duration,
-        row.full_name, row.email, row.phone, row.address, row.plz, row.city, row.note,
-        reason.trim(), req.user?.username || null, req.user?.uid || null
-      ]
-    );
+   `INSERT INTO canceled_bookings
+      (booking_id, slot_date, slot_time, slot_duration,
+       full_name, email, phone, address, plz, city, note,
+       reason, canceled_by, canceled_by_id)
+   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  [
+    booking.id,             // booking_id
+    slot.date,              // slot_date
+    slot.time,              // slot_time
+    slot.duration,          // slot_duration
+    b.full_name,            // full_name
+    b.email,                // email
+    b.phone,                // phone
+    b.address,              // address
+    b.plz,                  // plz
+    b.city,                 // city
+    b.note || null,         // note
+    reason,                 // reason
+    actor.username,         // canceled_by
+    actor.uid               // canceled_by_id
+  ]
+);
 
     // 3) Obriši booking + oslobodi slot
     await run(`DELETE FROM bookings WHERE id=?`, [id]);
