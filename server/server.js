@@ -235,41 +235,52 @@ app.post('/api/bookings', async (req, res) => {
     if (!slot) return res.status(404).json({ error: 'slot_not_found' });
     if (slot.status === 'booked') return res.status(409).json({ error: 'already_booked' });
 
+    // 1) upis u DB
     const { id: bookingId } = await run(
       'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note) VALUES (?,?,?,?,?,?,?,?)',
       [slotId, fullName, email, phone, address, plz, city, note || null]
     );
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
 
-    // e-mail: potvrda
-    const transport = makeTransport();
-    const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
-    const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
-      brand: process.env.BRAND_NAME || 'MyDienst',
-      toAdmin: process.env.ADMIN_EMAIL,
-      toInvitee: email,
-      slot,
-      booking: { full_name: fullName, email, phone, address, plz, city, note },
-      replyTo,
+    // 2) ODMAH vrati uspjeh klijentu – da ne “visi” ako mailovi padnu
+    res.json({ bookingId, slotId });
+
+    // 3) Mailovi u pozadini, uz try/catch da ne ruše request
+    setImmediate(async () => {
+      try {
+        const transport = makeTransport();
+        const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
+        const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
+          brand: process.env.BRAND_NAME || 'MyDienst',
+          toAdmin: process.env.ADMIN_EMAIL,
+          toInvitee: email,
+          slot,
+          booking: { full_name: fullName, email, phone, address, plz, city, note },
+          replyTo,
+        });
+
+        await transport.sendMail({
+          from: process.env.SMTP_USER,
+          to: email,
+          subject,
+          html: htmlInvitee,
+          replyTo,
+        }).catch(console.error);
+
+        if (process.env.ADMIN_EMAIL) {
+          await transport.sendMail({
+            from: process.env.SMTP_USER,
+            to: process.env.ADMIN_EMAIL,
+            subject: `Neue Buchung – ${subject}`,
+            html: htmlAdmin,
+            replyTo,
+          }).catch(console.error);
+        }
+      } catch (err) {
+        console.error('[mail after booking] ', err);
+      }
     });
 
-    transport.sendMail({
-      from: process.env.SMTP_USER,
-      to: email,
-      subject,
-      html: htmlInvitee,
-      replyTo,
-    }).catch(console.error);
-
-    transport.sendMail({
-      from: process.env.SMTP_USER,
-      to: process.env.ADMIN_EMAIL,
-      subject: `Neue Buchung – ${subject}`,
-      html: htmlAdmin,
-      replyTo,
-    }).catch(console.error);
-
-    res.json({ bookingId, slotId });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'booking_failed' });
