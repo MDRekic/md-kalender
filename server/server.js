@@ -85,6 +85,19 @@ function ensurePrivileged(req, res, next) {
   next();
 }
 
+function ensureStaff(req, res, next) {
+  const token = req.cookies?.admtk;
+  const decoded = token && verifyToken(token, process.env.JWT_SECRET || 'secret');
+  if (!decoded) return res.status(401).json({ error: 'unauthorized' });
+  if (!['admin','user'].includes(decoded.role || (decoded.admin ? 'admin' : ''))) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  req.user = decoded; // { uid, username, role, admin:bool ... }
+  next();
+}
+
+
+
 /* ------------------------------- AUTH ------------------------------ */
 app.post('/api/auth/login', async (req, res) => {
   try {
@@ -345,8 +358,8 @@ app.post('/api/admin/bookings/:id/complete', ensurePrivileged, async (req, res) 
 });
 
 /* ---------------- Delete booking (sa razlogom + mail) ------------- */
-// admin i operater
-app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
+// STORNIRAJ (arhiviraj) REZERVACIJU + oslobodi slot + pošalji mailove
+app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
   const id = req.params.id;
   const { reason } = req.body || {};
   if (!reason || !reason.trim()) {
@@ -354,41 +367,59 @@ app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
   }
 
   try {
-    const booking = await get(
-      `SELECT b.id, b.full_name as fullName, b.email, b.phone, b.address, b.plz, b.city,
-              s.date, s.time, s.duration, s.id as slotId
+    // 1) Učitaj booking + slot
+    const row = await get(
+      `SELECT b.*, s.date AS slot_date, s.time AS slot_time, s.duration AS slot_duration, s.id AS slot_id
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
         WHERE b.id = ?`,
       [id]
     );
-    if (!booking) return res.status(404).json({ error: 'not_found' });
+    if (!row) return res.status(404).json({ error: 'not_found' });
 
-    await run('DELETE FROM bookings WHERE id = ?', [id]);
-    await run('UPDATE slots SET status = "free" WHERE id = ?', [booking.slotId]);
+    // 2) Upisi u canceled_bookings (audit trag)
+    await run(
+      `INSERT INTO canceled_bookings
+        (booking_id, slot_date, slot_time, slot_duration,
+         full_name, email, phone, address, plz, city, note,
+         reason, canceled_by, canceled_by_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        row.id, row.slot_date, row.slot_time, row.slot_duration,
+        row.full_name, row.email, row.phone, row.address, row.plz, row.city, row.note,
+        reason.trim(), req.user?.username || null, req.user?.uid || null
+      ]
+    );
 
-    const when = `${booking.date} ${booking.time}`;
+    // 3) Obriši booking + oslobodi slot
+    await run(`DELETE FROM bookings WHERE id=?`, [id]);
+    await run(`UPDATE slots SET status='free' WHERE id=?`, [row.slot_id]);
+
+    // 4) E-mailovi (ostaje kao i prije)
+    const when = `${row.slot_date} ${row.slot_time}`;
     const subject = `Termin storniert – ${when}`;
     const html = `
-      <p>Guten Tag ${escapeHtml(booking.fullName)},</p>
-      <p>Ihr Termin am <b>${booking.date}</b> um <b>${booking.time}</b> (Dauer ${booking.duration} Min.) wurde storniert.</p>
+      <p>Guten Tag ${escapeHtml(row.full_name)},</p>
+      <p>Ihr Termin am <b>${row.slot_date}</b> um <b>${row.slot_time}</b> (Dauer ${row.slot_duration} Min.) wurde storniert.</p>
       <p><b>Grund:</b> ${escapeHtml(reason)}</p>
       <p>— ${process.env.BRAND_NAME || 'MyDienst'}</p>
     `;
-    await sendMail({ to: booking.email, subject, html });
 
-    const adminHtml = `
-      <p>Folgender Termin wurde storniert:</p>
-      <ul>
-        <li><b>Kunde:</b> ${escapeHtml(booking.fullName)} (${escapeHtml(booking.email)})</li>
-        <li><b>Telefon:</b> ${escapeHtml(booking.phone || '')}</li>
-        <li><b>Adresse:</b> ${escapeHtml(booking.address || '')}, ${escapeHtml(booking.plz || '')} ${escapeHtml(booking.city || '')}</li>
-        <li><b>Datum/Zeit:</b> ${booking.date} ${booking.time}</li>
-        <li><b>Dauer:</b> ${booking.duration} Min.</li>
-      </ul>
-      <p><b>Grund:</b> ${escapeHtml(reason)}</p>
-    `;
-    await sendMail({ to: process.env.ADMIN_EMAIL, subject: `ADMIN: ${subject}`, html: adminHtml });
+    await sendMail({ to: row.email, subject, html });
+    await sendMail({
+      to: process.env.ADMIN_EMAIL,
+      subject: `ADMIN: ${subject}`,
+      html: `
+        <p>Storno erfasst.</p>
+        <ul>
+          <li><b>Kunde:</b> ${escapeHtml(row.full_name)} (${escapeHtml(row.email)})</li>
+          <li><b>Telefon:</b> ${escapeHtml(row.phone || '')}</li>
+          <li><b>Adresse:</b> ${escapeHtml(row.address || '')}, ${escapeHtml(row.plz || '')} ${escapeHtml(row.city || '')}</li>
+          <li><b>Datum/Zeit:</b> ${row.slot_date} ${row.slot_time} · ${row.slot_duration} Min.</li>
+          <li><b>Grund:</b> ${escapeHtml(reason)}</li>
+          <li><b>Storniert von:</b> ${escapeHtml(req.user?.username || '')}</li>
+        </ul>`
+    });
 
     res.json({ ok: true });
   } catch (e) {
@@ -396,6 +427,32 @@ app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
     res.status(500).json({ error: 'server_error' });
   }
 });
+
+// LISTA STORNA (admin i user), filter po datumu slota
+app.get('/api/admin/cancellations', ensureStaff, async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const params = [];
+    let where = [];
+    if (from) { where.push('slot_date >= ?'); params.push(from); }
+    if (to)   { where.push('slot_date <= ?'); params.push(to); }
+    const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const rows = await all(
+      `SELECT id, booking_id, slot_date, slot_time, slot_duration,
+              full_name, email, phone, address, plz, city, note,
+              reason, canceled_by, canceled_by_id, canceled_at
+         FROM canceled_bookings
+         ${sqlWhere}
+         ORDER BY slot_date, slot_time`, params);
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'cancellations_list_failed' });
+  }
+});
+
+
 
 /* ------------------------------- CSV ------------------------------- */
 app.get('/api/bookings.csv', ensurePrivileged, async (_req, res) => {

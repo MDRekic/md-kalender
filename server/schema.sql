@@ -30,3 +30,22 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL DEFAULT 'admin',
   email TEXT
 );
+
+CREATE TABLE IF NOT EXISTS canceled_bookings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  booking_id INTEGER,               -- originalni ID rezervacije
+  slot_date TEXT,
+  slot_time TEXT,
+  slot_duration INTEGER,
+  full_name TEXT,
+  email TEXT,
+  phone TEXT,
+  address TEXT,
+  plz TEXT,
+  city TEXT,
+  note TEXT,
+  reason TEXT,                      -- razlog storna
+  canceled_by TEXT,                 -- username operatera/admina
+  canceled_by_id INTEGER,           -- korisnički id
+  canceled_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

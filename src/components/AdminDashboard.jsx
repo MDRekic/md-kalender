@@ -29,6 +29,21 @@ function deToYmd(s) {
   return s;
 }
 
+const [canceled, setCanceled] = useState([]);
+
+async function reloadLists() {
+  // ...već imaš fetch za open + completed
+  const [openL, doneL, cancL] = await Promise.all([
+    adminListBookings({ status: 'open', from, to }),      // primjer, zavisi od tvoje implementacije
+    adminListCompleted({ from, to }),                      // ako imaš posebnu rutu
+    adminListCancellations({ from, to })
+  ]);
+  setOpen(openL);
+  setCompleted(doneL);
+  setCanceled(cancL);
+}
+
+
 export default function AdminDashboard() {
   const [fromDe, setFromDe] = useState(""); // prikaz u inputu (može ostati prazan)
   const [toDe, setToDe] = useState("");
@@ -293,6 +308,48 @@ export default function AdminDashboard() {
               ))}
           </tbody>
         </table>
+
+        <div className="mt-8">
+  <h3 className="mb-2 text-lg font-semibold">Storno Aufträge</h3>
+
+  <div className="overflow-auto rounded-2xl border border-slate-200 bg-white">
+    <table className="min-w-full text-sm">
+      <thead>
+        <tr className="bg-slate-50 text-slate-600">
+          <th className="px-3 py-2 text-left">Datum</th>
+          <th className="px-3 py-2 text-left">Zeit</th>
+          <th className="px-3 py-2 text-left">Kunde</th>
+          <th className="px-3 py-2 text-left">Kontakt</th>
+          <th className="px-3 py-2 text-left">Adresse</th>
+          <th className="px-3 py-2 text-left">Grund</th>
+          <th className="px-3 py-2 text-left">Storniert von</th>
+          <th className="px-3 py-2 text-left">Storniert am</th>
+        </tr>
+      </thead>
+      <tbody>
+        {canceled.length === 0 ? (
+          <tr><td colSpan={8} className="px-3 py-4 text-slate-500">Keine stornierten Aufträge im Zeitraum.</td></tr>
+        ) : canceled.map((r) => (
+          <tr key={r.id} className="border-t">
+            <td className="px-3 py-2 whitespace-nowrap">{r.slot_date}</td>
+            <td className="px-3 py-2 whitespace-nowrap">{r.slot_time} · {r.slot_duration} Min.</td>
+            <td className="px-3 py-2">{r.full_name}</td>
+            <td className="px-3 py-2">
+              <div>{r.email}</div>
+              {r.phone && <div className="text-slate-500">{r.phone}</div>}
+            </td>
+            <td className="px-3 py-2">{[r.address, r.plz, r.city].filter(Boolean).join(', ')}</td>
+            <td className="px-3 py-2">{r.reason}</td>
+            <td className="px-3 py-2">{r.canceled_by || '—'}</td>
+            <td className="px-3 py-2">{r.canceled_at}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
       </div>
     </div>
   );

@@ -101,3 +101,13 @@ export async function adminDeleteUser(id) {
 export async function adminCompleteBooking(id) {
   return jfetch("POST", `/api/admin/bookings/${id}/complete`);
 }
+
+export async function adminListCancellations({ from, to } = {}) {
+  const p = new URLSearchParams();
+  if (from) p.set('from', from);
+  if (to)   p.set('to', to);
+  const qs = p.toString() ? `?${p.toString()}` : '';
+  const r = await fetch(`/api/admin/cancellations${qs}`, { credentials: 'include' });
+  if (!r.ok) throw new Error('admin_cancellations_failed');
+  return r.json();
+}
