@@ -316,14 +316,48 @@ setImmediate(async () => {
 });
 
 // ADMIN – list
-app.get('/api/admin/bookings', ensureAdmin, async (_req, res) => {
+// LIST (admin)
+app.get('/api/admin/bookings', ensureAdmin, async (req, res) => {
   try {
-    const rows = await all(
-      `SELECT b.id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
-         FROM bookings b JOIN slots s ON s.id = b.slot_id
-         ORDER BY s.date, s.time`
-    );
+    const { from, to } = req.query || {};
+    let rows;
+
+    if (from && to) {
+      rows = await all(
+        `SELECT b.id, s.date, s.time, s.duration, b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
+           FROM bookings b
+           JOIN slots s ON s.id = b.slot_id
+          WHERE s.date BETWEEN ? AND ?
+          ORDER BY s.date, s.time`,
+        [from, to]
+      );
+    } else if (from) {
+      rows = await all(
+        `SELECT b.id, s.date, s.time, s.duration, b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
+           FROM bookings b
+           JOIN slots s ON s.id = b.slot_id
+          WHERE s.date >= ?
+          ORDER BY s.date, s.time`,
+        [from]
+      );
+    } else if (to) {
+      rows = await all(
+        `SELECT b.id, s.date, s.time, s.duration, b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
+           FROM bookings b
+           JOIN slots s ON s.id = b.slot_id
+          WHERE s.date <= ?
+          ORDER BY s.date, s.time`,
+        [to]
+      );
+    } else {
+      rows = await all(
+        `SELECT b.id, s.date, s.time, s.duration, b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
+           FROM bookings b
+           JOIN slots s ON s.id = b.slot_id
+          ORDER BY s.date, s.time`
+      );
+    }
+
     res.json(rows);
   } catch (e) {
     console.error(e);
@@ -331,96 +365,33 @@ app.get('/api/admin/bookings', ensureAdmin, async (_req, res) => {
   }
 });
 
-// ADMIN – delete booking with reason + emails
-app.delete('/api/admin/bookings/:id', ensureAdmin, async (req, res) => {
+// CSV (admin) – ista logika filtera
+app.get('/api/bookings.csv', ensureAdmin, async (req, res) => {
   try {
-    const id = req.params.id;
-    const { reason } = req.body || {};
-    if (!reason || !reason.trim()) {
-      return res.status(400).json({ error: 'reason_required' });
-    }
+    const { from, to } = req.query || {};
+    let rows;
 
-    
-
-    const b = await get(
-      `SELECT b.id, b.full_name, b.email, b.phone, b.address, b.plz, b.city,
-              s.id AS slot_id, s.date, s.time, s.duration
-         FROM bookings b
-         JOIN slots s ON s.id = b.slot_id
-        WHERE b.id = ?`,
-      [id]
-    );
-    if (!b) return res.status(404).json({ error: 'not_found' });
-
-    // obriši i oslobodi slot
-    await run('DELETE FROM bookings WHERE id=?', [b.id]);
-    await run('UPDATE slots SET status="free" WHERE id=?', [b.slot_id]);
-
-    // email obavijesti
-    const brand = process.env.BRAND_NAME || 'MyDienst';
-    const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
-    const subject = `Termin storniert – ${b.date} ${b.time}`;
-
-    const htmlInvitee = `
-      <p>Guten Tag ${escapeHtml(b.full_name)},</p>
-      <p>Ihr Termin am <b>${b.date}</b> um <b>${b.time}</b> (Dauer ${b.duration} Min.) wurde storniert.</p>
-      <p><b>Grund:</b> ${escapeHtml(reason)}</p>
-      <p>Bei Rückfragen melden Sie sich bitte bei uns.</p>
-      <p>— ${escapeHtml(brand)}</p>
-    `;
-
-    const htmlAdmin = `
-      <p>Ein Termin wurde storniert:</p>
-      <ul>
-        <li><b>Kunde:</b> ${escapeHtml(b.full_name)} (${escapeHtml(b.email)})</li>
-        <li><b>Telefon:</b> ${escapeHtml(b.phone || '')}</li>
-        <li><b>Adresse:</b> ${escapeHtml(b.address || '')}, ${escapeHtml(b.plz || '')} ${escapeHtml(b.city || '')}</li>
-        <li><b>Datum/Zeit:</b> ${b.date} ${b.time}</li>
-        <li><b>Dauer:</b> ${b.duration} Min.</li>
-        <li><b>Grund:</b> ${escapeHtml(reason)}</li>
-      </ul>
-    `;
-
-    const transport = makeTransport();
-    await transport.sendMail({
-      from: process.env.SMTP_USER,
-      to: b.email,
-      subject,
-      html: htmlInvitee,
-      replyTo,
-    }).catch(console.error);
-
-    if (process.env.ADMIN_EMAIL) {
-      await transport.sendMail({
-        from: process.env.SMTP_USER,
-        to: process.env.ADMIN_EMAIL,
-        subject: `ADMIN: ${subject}`,
-        html: htmlAdmin,
-        replyTo,
-      }).catch(console.error);
-    }
-
-    res.json({ ok: true });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
-
-// CSV
-app.get('/api/bookings.csv', ensureAdmin, async (_req, res) => {
-  try {
-    const rows = await all(
+    const base =
       `SELECT b.id as booking_id, s.date, s.time, s.duration,
               b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
          FROM bookings b
-         JOIN slots s ON s.id = b.slot_id
-         ORDER BY s.date, s.time`
-    );
+         JOIN slots s ON s.id = b.slot_id`;
+
+    if (from && to) {
+      rows = await all(`${base} WHERE s.date BETWEEN ? AND ? ORDER BY s.date, s.time`, [from, to]);
+    } else if (from) {
+      rows = await all(`${base} WHERE s.date >= ? ORDER BY s.date, s.time`, [from]);
+    } else if (to) {
+      rows = await all(`${base} WHERE s.date <= ? ORDER BY s.date, s.time`, [to]);
+    } else {
+      rows = await all(`${base} ORDER BY s.date, s.time`);
+    }
+
     const header = ['booking_id','date','time','duration','full_name','email','phone','address','plz','city','note','created_at'];
     const csv = [header.join(',')]
       .concat(rows.map(r => header.map(h => `"${String(r[h]??'').replace(/"/g,'""')}"`).join(',')))
       .join('\n');
+
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="bookings.csv"');
     res.send(csv);
@@ -429,6 +400,7 @@ app.get('/api/bookings.csv', ensureAdmin, async (_req, res) => {
     res.status(500).send('csv_failed');
   }
 });
+
 
 // PRINT
 app.get('/api/bookings/:id/print', async (req, res) => {
