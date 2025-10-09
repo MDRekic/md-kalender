@@ -321,44 +321,37 @@ setImmediate(async () => {
 // LIST (admin)
 app.get('/api/admin/bookings', ensureAdmin, async (req, res) => {
   try {
-    const { from, to } = req.query || {};
-    let rows;
+    const { from, to, status = 'active' } = req.query;
 
-    if (from && to) {
-      rows = await all(
-        `SELECT b.id, s.date, s.time, s.duration, b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
-           FROM bookings b
-           JOIN slots s ON s.id = b.slot_id
-          WHERE s.date BETWEEN ? AND ?
-          ORDER BY s.date, s.time`,
-        [from, to]
-      );
-    } else if (from) {
-      rows = await all(
-        `SELECT b.id, s.date, s.time, s.duration, b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
-           FROM bookings b
-           JOIN slots s ON s.id = b.slot_id
-          WHERE s.date >= ?
-          ORDER BY s.date, s.time`,
-        [from]
-      );
-    } else if (to) {
-      rows = await all(
-        `SELECT b.id, s.date, s.time, s.duration, b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
-           FROM bookings b
-           JOIN slots s ON s.id = b.slot_id
-          WHERE s.date <= ?
-          ORDER BY s.date, s.time`,
-        [to]
-      );
-    } else {
-      rows = await all(
-        `SELECT b.id, s.date, s.time, s.duration, b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
-           FROM bookings b
-           JOIN slots s ON s.id = b.slot_id
-          ORDER BY s.date, s.time`
-      );
+    const where = [];
+    const params = [];
+
+    if (status && status !== 'all') {
+      where.push('COALESCE(b.status, "active") = ?');
+      params.push(status);
     }
+    if (from) {
+      where.push('s.date >= ?');
+      params.push(from);
+    }
+    if (to) {
+      where.push('s.date <= ?');
+      params.push(to);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const rows = await all(
+      `SELECT b.id, s.date, s.time, s.duration,
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
+              COALESCE(b.status, 'active') as status,
+              b.created_at
+         FROM bookings b
+         JOIN slots s ON s.id = b.slot_id
+         ${whereSql}
+         ORDER BY s.date, s.time`,
+      params
+    );
 
     res.json(rows);
   } catch (e) {
@@ -366,6 +359,7 @@ app.get('/api/admin/bookings', ensureAdmin, async (req, res) => {
     res.status(500).json({ error: 'bookings_list_failed' });
   }
 });
+
 
 // CSV (admin) – ista logika filtera
 app.get('/api/bookings.csv', ensureAdmin, async (req, res) => {
