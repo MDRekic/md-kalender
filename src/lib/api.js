@@ -2,6 +2,7 @@
 
 const BASE = ""; // isti origin (nginx reverse proxy vodi na backend)
 
+/** Generic fetch helper (JSON in/out, cookies on) */
 async function jfetch(method, path, data) {
   const opts = {
     method,
@@ -27,7 +28,7 @@ async function jfetch(method, path, data) {
   return json;
 }
 
-/* -------- PUBLIC -------- */
+/* ---------------- PUBLIC ---------------- */
 export async function listSlots(date) {
   const q = date ? `?date=${encodeURIComponent(date)}` : "";
   return jfetch("GET", `/api/slots${q}`);
@@ -41,7 +42,7 @@ export function printUrl(bookingId) {
   return `/api/bookings/${bookingId}/print`;
 }
 
-/* -------- AUTH -------- */
+/* ---------------- AUTH ---------------- */
 export async function authMe() {
   return jfetch("GET", "/api/auth/me");
 }
@@ -52,7 +53,7 @@ export async function authLogout() {
   return jfetch("POST", "/api/auth/logout");
 }
 
-/* -------- ADMIN: SLOTS -------- */
+/* ------------- ADMIN: SLOTS ------------- */
 export async function createSlot({ date, time, duration = 120 }) {
   return jfetch("POST", "/api/slots", { date, time, duration });
 }
@@ -60,54 +61,41 @@ export async function deleteSlot(id) {
   return jfetch("DELETE", `/api/slots/${id}`);
 }
 
-/* -------- ADMIN: BOOKINGS -------- */
-// ✅ jedna verzija s opcionalnim filterima
+/* ---------- ADMIN: BOOKINGS (liste) ---------- */
+// Otvorene/aktivne rezervacije (sa opcionim periodom)
 export async function adminListBookings({ from, to } = {}) {
   const p = new URLSearchParams();
   if (from) p.set("from", from);
   if (to) p.set("to", to);
   const qs = p.toString() ? `?${p.toString()}` : "";
-  const r = await fetch(`/api/admin/bookings${qs}`, { credentials: "include" });
-  if (!r.ok) throw new Error("admin_bookings_failed");
-  return r.json();
+  return jfetch("GET", `/api/admin/bookings${qs}`);
 }
 
+// Erledigte Aufträge (završeni)
+export async function adminListCompleted({ from, to } = {}) {
+  const p = new URLSearchParams();
+  if (from) p.set("from", from);
+  if (to) p.set("to", to);
+  const qs = p.toString() ? `?${p.toString()}` : "";
+  return jfetch("GET", `/api/admin/completed${qs}`);
+}
+
+// Storno Aufträge (otkazani)
+export async function adminListCancellations({ from, to } = {}) {
+  const p = new URLSearchParams();
+  if (from) p.set("from", from);
+  if (to) p.set("to", to);
+  const qs = p.toString() ? `?${p.toString()}` : "";
+  return jfetch("GET", `/api/admin/cancellations${qs}`);
+}
+
+/* ---------- ADMIN: BOOKINGS (akcije) ---------- */
+// Storno (DELETE uz reason)
 export async function adminDeleteBooking(id, reason) {
   return jfetch("DELETE", `/api/admin/bookings/${id}`, { reason });
 }
 
-export async function adminMarkDone(id) {
-  return jfetch("PATCH", `/api/admin/bookings/${id}/done`);
-}
-
-// kreiraj više slotova odjednom
-export async function createSlotsBulk(payload) {
-  return jfetch("POST", "/api/slots/bulk", payload);
-}
-
-/* -------- ADMIN: USERS -------- */
-export async function adminListUsers() {
-  return jfetch("GET", "/api/admin/users");
-}
-export async function adminCreateUser({ username, password, role = "user", email = null }) {
-  return jfetch("POST", "/api/admin/users", { username, password, role, email });
-}
-export async function adminUpdateUser(id, patch) {
-  return jfetch("PATCH", `/api/admin/users/${id}`, patch);
-}
-export async function adminDeleteUser(id) {
-  return jfetch("DELETE", `/api/admin/users/${id}`);
-}
+// Označi kao završeno
 export async function adminCompleteBooking(id) {
   return jfetch("POST", `/api/admin/bookings/${id}/complete`);
-}
-
-export async function adminListCancellations({ from, to } = {}) {
-  const p = new URLSearchParams();
-  if (from) p.set('from', from);
-  if (to)   p.set('to', to);
-  const qs = p.toString() ? `?${p.toString()}` : '';
-  const r = await fetch(`/api/admin/cancellations${qs}`, { credentials: 'include' });
-  if (!r.ok) throw new Error('admin_cancellations_failed');
-  return r.json();
 }
