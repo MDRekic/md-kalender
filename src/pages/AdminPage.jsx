@@ -30,17 +30,17 @@ export default function AdminPage() {
   const todayStr = useMemo(() => ymd(new Date()), []);
 
   // provjera sesije (na mount)
-  useEffect(() => {
-    authMe()
-      .then((r) => {
-        setIsLoggedIn(!!r.user);
-        setUserRole(r.user?.role || null);
-      })
-      .catch(() => {
-        setIsLoggedIn(false);
-        setUserRole(null);
-      });
-  }, []);
+ useEffect(() => {
+  authMe()
+    .then((r) => {
+      setIsLoggedIn(!!r.user || !!r.admin);      // prihvati i stari odgovor
+      setUserRole(r.user?.role || (r.admin ? "admin" : null));
+    })
+    .catch(() => {
+      setIsLoggedIn(false);
+      setUserRole(null);
+    });
+}, []);
 
   // učitaj sve slotove čim je korisnik ulogovan (admin ili user)
   useEffect(() => {
@@ -59,17 +59,23 @@ export default function AdminPage() {
     [slots, selectedDate]
   );
 
-  async function handleLogin(username, password) {
+async function handleLogin(username, password) {
+  try {
+    await authLogin(username, password);      // postavi httpOnly cookie
+    setIsLoggedIn(true);                      // odmah pusti u app
+
+    // best-effort: pokušaj doznati rolu; ako zakaže, tretiraj kao "user"
     try {
-      await authLogin(username, password);
-      // nakon login-a povuci /auth/me da dobijemo rolu
       const r = await authMe();
-      setIsLoggedIn(!!r.user);
-      setUserRole(r.user?.role || null);
+      setUserRole(r.user?.role || (r.admin ? "admin" : "user"));
     } catch {
-      alert("Falscher Benutzername oder Passwort.");
+      setUserRole("user");
     }
+  } catch (e) {
+    console.error(e);
+    alert("Falscher Benutzername oder Passwort.");
   }
+}
 
   async function handleLogout() {
     await authLogout();
