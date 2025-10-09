@@ -8,8 +8,7 @@ import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 
 import { all, get, migrate, run } from './db.js';
-import { makeTransport, bookingEmails } from './email.js';
-import { sendMail } from './email.js';
+import { makeTransport, bookingEmails, sendMail } from './email.js';
 import { issueToken, verifyToken } from './auth.js';
 
 dotenv.config();
@@ -17,8 +16,7 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT || 5174);
 
-// ───────────────────────────────────────────────────────────────────────────────
-// helpers
+/* ----------------------------- helpers ----------------------------- */
 const escapeHtml = (s = '') =>
   String(s)
     .replace(/&/g, '&amp;')
@@ -27,12 +25,10 @@ const escapeHtml = (s = '') =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 
-// DB migracije
+/* ---------------------------- migrations --------------------------- */
 migrate();
 
-run(`ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'active'`).catch(() => {});
-
-// seed admin user ako ne postoji
+/* -------------------------- seed admin user ------------------------ */
 async function ensureAdminUser() {
   const username = process.env.ADMIN_USER || 'admin';
   const envHash = process.env.ADMIN_PASS_HASH || '';
@@ -50,40 +46,12 @@ async function ensureAdminUser() {
 }
 ensureAdminUser().catch(console.error);
 
-// security & parsers
+/* ------------------------- security & parsers ---------------------- */
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(express.json());
 app.use(cookieParser());
 
-
-function getSession(req) {
-  const token = req.cookies?.admtk;
-  return token && verifyToken(token, process.env.JWT_SECRET || 'secret');
-}
-
-/** dozvoli i admin i user */
-function ensureStaff(req, res, next) {
-  const u = getSession(req);
-  if (!u || !['admin', 'user'].includes(u.role)) {
-    return res.status(401).json({ error: 'unauthorized' });
-  }
-  req.user = u;
-  next();
-}
-
-/** dozvoli samo admin */
-function ensureAdminOnly(req, res, next) {
-  const u = getSession(req);
-  if (!u || u.role !== 'admin') {
-    return res.status(403).json({ error: 'forbidden' });
-  }
-  req.user = u;
-  next();
-}
-
-
-
-// CORS
+/* ------------------------------- CORS ------------------------------ */
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
@@ -91,82 +59,40 @@ app.use(
   })
 );
 
-// rate limit
+/* ----------------------------- rate limit -------------------------- */
 app.use('/api/auth', rateLimit({ windowMs: 60_000, max: 20 }));
 app.use('/api/bookings', rateLimit({ windowMs: 60_000, max: 100 }));
 
-// ───────────────────────────────────────────────────────────────────────────────
-// admin auth helper
+/* ---------------------------- auth guards -------------------------- */
 function ensureAdmin(req, res, next) {
   const token = req.cookies?.admtk;
   const decoded = token && verifyToken(token, process.env.JWT_SECRET || 'secret');
-  if (!decoded?.admin) return res.status(401).json({ error: 'unauthorized' });
-  req.admin = decoded;
+  if (!decoded?.role || decoded.role !== 'admin') {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  req.user = decoded;
   next();
 }
 
-
-app.post('/api/admin/bookings/:id/complete', ensureAdmin, async (req, res) => {
-  try {
-    const id = req.params.id;
-
-    // provjeri da booking postoji
-    const b = await get(
-      `SELECT b.id, s.id AS slot_id
-         FROM bookings b
-         JOIN slots s ON s.id = b.slot_id
-        WHERE b.id = ?`, [id]
-    );
-    if (!b) return res.status(404).json({ error: 'not_found' });
-
-    // upiši ko je završio
-    await run(
-      `UPDATE bookings
-          SET done = 1,
-              completed_by = ?,
-              completed_by_name = ?,
-              completed_at = datetime('now')
-        WHERE id = ?`,
-      [req.admin.uid, req.admin.username, id]
-    );
-
-    return res.json({ ok: true });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'complete_failed' });
+// admin ili user (operater)
+function ensurePrivileged(req, res, next) {
+  const token = req.cookies?.admtk;
+  const decoded = token && verifyToken(token, process.env.JWT_SECRET || 'secret');
+  if (!decoded?.role || !['admin', 'user'].includes(decoded.role)) {
+    return res.status(401).json({ error: 'unauthorized' });
   }
-});
+  req.user = decoded;
+  next();
+}
 
-
-app.get('/api/admin/bookings/completed', ensureAdmin, async (_req, res) => {
-  try {
-    const rows = await all(
-      `SELECT b.id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
-              b.completed_by, b.completed_by_name, b.completed_at
-         FROM bookings b
-         JOIN slots s ON s.id = b.slot_id
-        WHERE b.done = 1
-        ORDER BY s.date DESC, s.time DESC`
-    );
-    res.json(rows);
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'completed_list_failed' });
-  }
-});
-
-
-
-// ───────────────────────────────────────────────────────────────────────────────
-// AUTH
+/* ------------------------------- AUTH ------------------------------ */
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'missing_fields' });
 
     const user = await get(
-      'SELECT id, username, password_hash, role FROM users WHERE username=?',
+      'SELECT id, username, password_hash, role, email FROM users WHERE username=?',
       [username]
     );
     if (!user) return res.status(401).json({ error: 'bad_credentials' });
@@ -175,13 +101,13 @@ app.post('/api/auth/login', async (req, res) => {
     if (!okPass) return res.status(401).json({ error: 'bad_credentials' });
 
     const token = issueToken(
-      { admin: user.role === 'admin', username: user.username, uid: user.id, role: user.role },
+      { admin: user.role === 'admin', username: user.username, uid: user.id, role: user.role, email: user.email || null },
       process.env.JWT_SECRET || 'secret'
     );
     res.cookie('admtk', token, {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false,             // stavi true kad ideš full HTTPS iza proxyja
+      secure: !!process.env.CORS_ORIGIN?.startsWith('https'),
       maxAge: 7 * 24 * 3600 * 1000,
     });
     res.json({ ok: true });
@@ -197,23 +123,21 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.get('/api/auth/me', (req, res) => {
-  const u = getSession(req);
-  res.json({
-    ok: !!u,
-    role: u?.role || null,
-    username: u?.username || null,
-    admin: u?.role === 'admin',   // zadržavamo staro polje zbog kompatibilnosti
-  });
+  const token = req.cookies?.admtk;
+  const decoded = token && verifyToken(token, process.env.JWT_SECRET || 'secret');
+  res.json({ admin: decoded?.role === 'admin', user: decoded || null });
 });
 
-// ───────────────────────────────────────────────────────────────────────────────
-// USER MANAGEMENT (opciono)
-app.post('/api/admin/users', ensureAdminOnly, async (req, res) => {
+/* ------------------------- USER MANAGEMENT ------------------------- */
+// samo admin
+app.post('/api/admin/users', ensureAdmin, async (req, res) => {
   try {
-    const { username, password, role = 'admin', email = null } = req.body || {};
+    const { username, password, role = 'user', email = null } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'missing_fields' });
+
     const exists = await get('SELECT id FROM users WHERE username=?', [username]);
     if (exists) return res.status(409).json({ error: 'user_exists' });
+
     const password_hash = await bcrypt.hash(password, 10);
     const { id } = await run(
       'INSERT INTO users (username, password_hash, role, email) VALUES (?,?,?,?)',
@@ -227,16 +151,18 @@ app.post('/api/admin/users', ensureAdminOnly, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/users/:id', ensureAdminOnly, async (req, res) => {
+app.patch('/api/admin/users/:id', ensureAdmin, async (req, res) => {
   try {
     const { password, role, email } = req.body || {};
     const id = req.params.id;
+
     if (password) {
       const password_hash = await bcrypt.hash(password, 10);
       await run('UPDATE users SET password_hash=? WHERE id=?', [password_hash, id]);
     }
     if (role) await run('UPDATE users SET role=? WHERE id=?', [role, id]);
     if (typeof email !== 'undefined') await run('UPDATE users SET email=? WHERE id=?', [email, id]);
+
     const row = await get('SELECT id, username, role, email FROM users WHERE id=?', [id]);
     res.json(row);
   } catch (e) {
@@ -245,7 +171,7 @@ app.patch('/api/admin/users/:id', ensureAdminOnly, async (req, res) => {
   }
 });
 
-app.get('/api/admin/users', ensureAdminOnly, async (_req, res) => {
+app.get('/api/admin/users', ensureAdmin, async (_req, res) => {
   try {
     const rows = await all('SELECT id, username, role, email FROM users ORDER BY username');
     res.json(rows);
@@ -255,7 +181,7 @@ app.get('/api/admin/users', ensureAdminOnly, async (_req, res) => {
   }
 });
 
-app.delete('/api/admin/users/:id', ensureAdminOnly, async (req, res) => {
+app.delete('/api/admin/users/:id', ensureAdmin, async (req, res) => {
   try {
     const { changes } = await run('DELETE FROM users WHERE id=?', [req.params.id]);
     res.json({ deleted: changes });
@@ -265,8 +191,7 @@ app.delete('/api/admin/users/:id', ensureAdminOnly, async (req, res) => {
   }
 });
 
-// ───────────────────────────────────────────────────────────────────────────────
-// SLOTS
+/* ------------------------------- SLOTS ----------------------------- */
 app.get('/api/slots', async (req, res) => {
   try {
     const { date } = req.query;
@@ -280,11 +205,11 @@ app.get('/api/slots', async (req, res) => {
   }
 });
 
-app.post('/api/slots', ensureStaff, async (req, res) => {
+// dodavanje i brisanje slotova – samo admin
+app.post('/api/slots', ensureAdmin, async (req, res) => {
   try {
     const { date, time, duration = 120 } = req.body || {};
     if (!date || !time) return res.status(400).json({ error: 'missing_fields' });
-
     const { id } = await run(
       'INSERT INTO slots (date,time,duration,status) VALUES (?,?,?,?)',
       [date, time, duration, 'free']
@@ -297,7 +222,7 @@ app.post('/api/slots', ensureStaff, async (req, res) => {
   }
 });
 
-app.delete('/api/slots/:id', ensureStaff, async (req, res) => {
+app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
   try {
     const { changes } = await run(
       'DELETE FROM slots WHERE id=? AND status!="booked"',
@@ -310,65 +235,8 @@ app.delete('/api/slots/:id', ensureStaff, async (req, res) => {
   }
 });
 
-
-// BULK: kreiraj više slotova odjednom
-app.post('/api/slots/bulk', ensureAdminOnly, async (req, res) => {
-  try {
-    const { from, to, time, duration = 120, daysOfWeek } = req.body || {};
-    // daysOfWeek: niz integera 1..7 (1=Mon, 7=Sun)
-
-    if (!from || !to || !time || !/^\d{2}:\d{2}$/.test(time)) {
-      return res.status(400).json({ error: 'missing_fields' });
-    }
-    const wantedDays = Array.isArray(daysOfWeek) && daysOfWeek.length
-      ? new Set(daysOfWeek.map(Number))
-      : new Set([1,2,3,4,5,6,7]); // ako nije dato, sve dane
-
-    const start = new Date(from + 'T00:00:00');
-    const end   = new Date(to   + 'T00:00:00');
-    if (isNaN(start) || isNaN(end) || start > end) {
-      return res.status(400).json({ error: 'bad_range' });
-    }
-
-    let created = 0, skipped = 0, conflicts = 0;
-
-    await run('BEGIN');
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      // 1=Mon ... 7=Sun (ISO day)
-      const day = ((d.getDay() + 6) % 7) + 1;
-      if (!wantedDays.has(day)) continue;
-
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      const dateStr = `${y}-${m}-${dd}`;
-
-      // postoji li već slot za taj datum+vrijeme?
-      const exists = await get('SELECT id, status FROM slots WHERE date=? AND time=?', [dateStr, time]);
-      if (exists) {
-        // ako je već bukiran ili već postoji – preskoči kao konflikt/skip
-        conflicts += (exists.status === 'booked') ? 1 : 0;
-        skipped   += (exists.status !== 'booked') ? 1 : 0;
-        continue;
-      }
-
-      await run('INSERT INTO slots (date,time,duration,status) VALUES (?,?,?,?)', [dateStr, time, duration, 'free']);
-      created++;
-    }
-    await run('COMMIT');
-
-    res.json({ created, skipped, conflicts });
-  } catch (e) {
-    console.error(e);
-    try { await run('ROLLBACK'); } catch (_) {}
-    res.status(500).json({ error: 'bulk_create_failed' });
-  }
-});
-
-
-
-// ───────────────────────────────────────────────────────────────────────────────
-// BOOKINGS (public POST)
+/* ----------------------------- BOOKINGS --------------------------- */
+// public – kreiranje
 app.post('/api/bookings', async (req, res) => {
   try {
     const { slotId, fullName, email, phone, address, plz, city, note } = req.body || {};
@@ -380,121 +248,78 @@ app.post('/api/bookings', async (req, res) => {
     if (!slot) return res.status(404).json({ error: 'slot_not_found' });
     if (slot.status === 'booked') return res.status(409).json({ error: 'already_booked' });
 
-    // 1) upis u DB
     const { id: bookingId } = await run(
       'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note) VALUES (?,?,?,?,?,?,?,?)',
       [slotId, fullName, email, phone, address, plz, city, note || null]
     );
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
 
-    // 2) ODMAH vrati uspjeh klijentu – da ne “visi” ako mailovi padnu
-    res.json({ bookingId, slotId });
+    // e-mailovi (asinkrono, bez blokiranja odgovora)
+    setImmediate(async () => {
+      try {
+        const transport = makeTransport();
+        const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
+        const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
+          brand: process.env.BRAND_NAME || 'MyDienst',
+          toAdmin: process.env.ADMIN_EMAIL,
+          toInvitee: email,
+          slot,
+          booking: { full_name: fullName, email, phone, address, plz, city, note },
+          replyTo,
+        });
 
-    // 3) Mailovi u pozadini, uz try/catch da ne ruše request
-setImmediate(async () => {
-  try {
-    const brand   = process.env.BRAND_NAME || 'MyDienst';
-    const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
+        await transport.sendMail({
+          from: process.env.SMTP_USER,
+          to: email,
+          subject,
+          html: htmlInvitee,
+          replyTo,
+        });
 
-    const when    = `${slot.date} ${slot.time}`;
-    const subject = `Termin bestätigt – ${when}`;
-
-    const inviteeHtml = `
-      <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.45">
-        <p>Guten Tag ${escapeHtml(fullName)},</p>
-        <p>Ihr Termin wurde erfolgreich gebucht.</p>
-        <ul>
-          <li><b>Datum/Zeit:</b> ${slot.date} ${slot.time}</li>
-          <li><b>Dauer:</b> ${slot.duration} Min.</li>
-          <li><b>Name:</b> ${escapeHtml(fullName)}</li>
-          <li><b>E-Mail:</b> ${escapeHtml(email)}</li>
-          <li><b>Telefon:</b> ${escapeHtml(phone)}</li>
-          <li><b>Adresse:</b> ${escapeHtml(address)}, ${escapeHtml(plz)} ${escapeHtml(city)}</li>
-          ${note ? `<li><b>Notiz:</b> ${escapeHtml(note)}</li>` : ''}
-        </ul>
-        <p>Beste Grüße<br/>${brand}</p>
-      </div>
-    `;
-
-    const adminHtml = `
-      <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.45">
-        <p><b>Neue Buchung</b></p>
-        <ul>
-          <li><b>Datum/Zeit:</b> ${slot.date} ${slot.time} (${slot.duration} Min.)</li>
-          <li><b>Kunde:</b> ${escapeHtml(fullName)}</li>
-          <li><b>E-Mail:</b> ${escapeHtml(email)}</li>
-          <li><b>Telefon:</b> ${escapeHtml(phone)}</li>
-          <li><b>Adresse:</b> ${escapeHtml(address)}, ${escapeHtml(plz)} ${escapeHtml(city)}</li>
-          ${note ? `<li><b>Notiz:</b> ${escapeHtml(note)}</li>` : ''}
-          <li><b>Slot-ID:</b> ${slot.id} · <b>Buchung-ID:</b> ${bookingId}</li>
-        </ul>
-      </div>
-    `;
-
-    // kupac
-    await sendMail({
-      to: email,
-      subject,
-      html: inviteeHtml,
-      replyTo,
+        await transport.sendMail({
+          from: process.env.SMTP_USER,
+          to: process.env.ADMIN_EMAIL,
+          subject: `Neue Buchung – ${subject}`,
+          html: htmlAdmin,
+          replyTo,
+        });
+      } catch (err) {
+        console.error('[mail after booking]', err);
+      }
     });
 
-    // admin (ako je postavljen)
-    if (process.env.ADMIN_EMAIL) {
-      await sendMail({
-        to: process.env.ADMIN_EMAIL,
-        subject: `Neue Buchung – ${subject}`,
-        html: adminHtml,
-        replyTo,
-      });
-    }
-  } catch (err) {
-    console.error('[mail after booking]', err);
-  }
-});
-
+    res.json({ bookingId, slotId });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'booking_failed' });
   }
 });
 
-// ADMIN – list
-// LIST (admin)
-app.get('/api/admin/bookings', ensureStaff, async (req, res) => {
+/* -------------- ADMIN BOOKINGS LIST (with optional filter) -------- */
+app.get('/api/admin/bookings', ensurePrivileged, async (req, res) => {
   try {
-    const { from, to, status = 'active' } = req.query;
-
-    const where = [];
+    const { from, to } = req.query || {};
     const params = [];
-
-    if (status && status !== 'all') {
-      where.push('COALESCE(b.status, "active") = ?');
-      params.push(status);
-    }
+    let where = '';
     if (from) {
-      where.push('s.date >= ?');
+      where += (where ? ' AND ' : ' WHERE ') + 's.date >= ?';
       params.push(from);
     }
     if (to) {
-      where.push('s.date <= ?');
+      where += (where ? ' AND ' : ' WHERE ') + 's.date <= ?';
       params.push(to);
     }
-
-    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const rows = await all(
       `SELECT b.id, s.date, s.time, s.duration,
               b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
-              COALESCE(b.status, 'active') as status,
-              b.created_at
+              b.created_at, b.completed_by, b.completed_at
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
-         ${whereSql}
-         ORDER BY s.date, s.time`,
+        ${where}
+        ORDER BY s.date, s.time`,
       params
     );
-
     res.json(rows);
   } catch (e) {
     console.error(e);
@@ -502,34 +327,95 @@ app.get('/api/admin/bookings', ensureStaff, async (req, res) => {
   }
 });
 
-
-// CSV (admin) – ista logika filtera
-app.get('/api/bookings.csv', ensureStaff, async (req, res) => {
+/* --------------------- COMPLETE (Fertig) --------------------------- */
+// admin i operater
+app.post('/api/admin/bookings/:id/complete', ensurePrivileged, async (req, res) => {
+  const id = req.params.id;
+  const completedBy = req.user?.username || 'system';
   try {
-    const { from, to } = req.query || {};
-    let rows;
+    await run(
+      'UPDATE bookings SET completed_at=datetime("now"), completed_by=? WHERE id=?',
+      [completedBy, id]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'complete_failed' });
+  }
+});
 
-    const base =
-      `SELECT b.id as booking_id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note, b.created_at
+/* ---------------- Delete booking (sa razlogom + mail) ------------- */
+// admin i operater
+app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
+  const id = req.params.id;
+  const { reason } = req.body || {};
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: 'reason_required' });
+  }
+
+  try {
+    const booking = await get(
+      `SELECT b.id, b.full_name as fullName, b.email, b.phone, b.address, b.plz, b.city,
+              s.date, s.time, s.duration, s.id as slotId
          FROM bookings b
-         JOIN slots s ON s.id = b.slot_id`;
+         JOIN slots s ON s.id = b.slot_id
+        WHERE b.id = ?`,
+      [id]
+    );
+    if (!booking) return res.status(404).json({ error: 'not_found' });
 
-    if (from && to) {
-      rows = await all(`${base} WHERE s.date BETWEEN ? AND ? ORDER BY s.date, s.time`, [from, to]);
-    } else if (from) {
-      rows = await all(`${base} WHERE s.date >= ? ORDER BY s.date, s.time`, [from]);
-    } else if (to) {
-      rows = await all(`${base} WHERE s.date <= ? ORDER BY s.date, s.time`, [to]);
-    } else {
-      rows = await all(`${base} ORDER BY s.date, s.time`);
-    }
+    await run('DELETE FROM bookings WHERE id = ?', [id]);
+    await run('UPDATE slots SET status = "free" WHERE id = ?', [booking.slotId]);
 
-    const header = ['booking_id','date','time','duration','full_name','email','phone','address','plz','city','note','created_at'];
+    const when = `${booking.date} ${booking.time}`;
+    const subject = `Termin storniert – ${when}`;
+    const html = `
+      <p>Guten Tag ${escapeHtml(booking.fullName)},</p>
+      <p>Ihr Termin am <b>${booking.date}</b> um <b>${booking.time}</b> (Dauer ${booking.duration} Min.) wurde storniert.</p>
+      <p><b>Grund:</b> ${escapeHtml(reason)}</p>
+      <p>— ${process.env.BRAND_NAME || 'MyDienst'}</p>
+    `;
+    await sendMail({ to: booking.email, subject, html });
+
+    const adminHtml = `
+      <p>Folgender Termin wurde storniert:</p>
+      <ul>
+        <li><b>Kunde:</b> ${escapeHtml(booking.fullName)} (${escapeHtml(booking.email)})</li>
+        <li><b>Telefon:</b> ${escapeHtml(booking.phone || '')}</li>
+        <li><b>Adresse:</b> ${escapeHtml(booking.address || '')}, ${escapeHtml(booking.plz || '')} ${escapeHtml(booking.city || '')}</li>
+        <li><b>Datum/Zeit:</b> ${booking.date} ${booking.time}</li>
+        <li><b>Dauer:</b> ${booking.duration} Min.</li>
+      </ul>
+      <p><b>Grund:</b> ${escapeHtml(reason)}</p>
+    `;
+    await sendMail({ to: process.env.ADMIN_EMAIL, subject: `ADMIN: ${subject}`, html: adminHtml });
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+/* ------------------------------- CSV ------------------------------- */
+app.get('/api/bookings.csv', ensurePrivileged, async (_req, res) => {
+  try {
+    const rows = await all(
+      `SELECT b.id as booking_id, s.date, s.time, s.duration,
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
+              b.created_at, b.completed_by, b.completed_at
+         FROM bookings b
+         JOIN slots s ON s.id = b.slot_id
+         ORDER BY s.date, s.time`
+    );
+    const header = [
+      'booking_id','date','time','duration',
+      'full_name','email','phone','address','plz','city','note',
+      'created_at','completed_by','completed_at'
+    ];
     const csv = [header.join(',')]
-      .concat(rows.map(r => header.map(h => `"${String(r[h]??'').replace(/"/g,'""')}"`).join(',')))
+      .concat(rows.map(r => header.map(h => `"${String(r[h] ?? '').replace(/"/g,'""')}"`).join(',')))
       .join('\n');
-
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="bookings.csv"');
     res.send(csv);
@@ -539,23 +425,7 @@ app.get('/api/bookings.csv', ensureStaff, async (req, res) => {
   }
 });
 
-// Mark as done (Erledigt)
-app.patch('/api/admin/bookings/:id/done', ensureAdmin, async (req, res) => {
-  try {
-    const { changes } = await run(
-      `UPDATE bookings SET status='done' WHERE id=?`,
-      [req.params.id]
-    );
-    res.json({ updated: changes });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'mark_done_failed' });
-  }
-});
-
-
-
-// PRINT
+/* ------------------------------- PRINT ----------------------------- */
 app.get('/api/bookings/:id/print', async (req, res) => {
   try {
     const row = await get(
@@ -593,6 +463,8 @@ app.get('/api/bookings/:id/print', async (req, res) => {
       <div><b>Stadt</b></div><div>${row.city}</div>
       <div><b>Notiz</b></div><div>${row.note || '–'}</div>
       <div><b>Erstellt am</b></div><div>${row.created_at}</div>
+      <div><b>Erledigt von</b></div><div>${row.completed_by || '—'}</div>
+      <div><b>Erledigt am</b></div><div>${row.completed_at || '—'}</div>
     </div>
   </div>
   <p><button onclick="window.print()">Drucken</button></p>
@@ -603,4 +475,5 @@ app.get('/api/bookings/:id/print', async (req, res) => {
   }
 });
 
+/* ------------------------------ START ------------------------------ */
 app.listen(PORT, () => console.log(`API running on http://localhost:${PORT}`));

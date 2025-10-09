@@ -60,7 +60,7 @@ export default function AdminDashboard() {
 
   async function onComplete(b) {
     try {
-      await adminCompleteBooking(b.id);
+      await adminCompleteBooking(row.id);
       await reloadLists();
     } catch (e) {
       console.error(e);
