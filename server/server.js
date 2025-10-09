@@ -9,6 +9,7 @@ import bcrypt from 'bcryptjs';
 
 import { all, get, migrate, run } from './db.js';
 import { makeTransport, bookingEmails } from './email.js';
+import { sendMail } from './email.js';
 import { issueToken, verifyToken } from './auth.js';
 
 dotenv.config();
