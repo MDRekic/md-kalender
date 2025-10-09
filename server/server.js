@@ -30,6 +30,8 @@ const escapeHtml = (s = '') =>
 // DB migracije
 migrate();
 
+run(`ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'active'`).catch(() => {});
+
 // seed admin user ako ne postoji
 async function ensureAdminUser() {
   const username = process.env.ADMIN_USER || 'admin';
@@ -400,6 +402,21 @@ app.get('/api/bookings.csv', ensureAdmin, async (req, res) => {
     res.status(500).send('csv_failed');
   }
 });
+
+// Mark as done (Erledigt)
+app.patch('/api/admin/bookings/:id/done', ensureAdmin, async (req, res) => {
+  try {
+    const { changes } = await run(
+      `UPDATE bookings SET status='done' WHERE id=?`,
+      [req.params.id]
+    );
+    res.json({ updated: changes });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'mark_done_failed' });
+  }
+});
+
 
 
 // PRINT
