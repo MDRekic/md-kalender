@@ -293,13 +293,20 @@ app.get('/api/admin/bookings', ensureAdmin, async (_req, res) => {
 });
 
 // ADMIN – delete booking with reason + emails
-app.delete('/api/admin/bookings/:id', ensureAdmin, async (req, res) => {
-  try {
-    const id = req.params.id;
-    const { reason } = req.body || {};
-    if (!reason || !reason.trim()) {
-      return res.status(400).json({ error: 'reason_required' });
-    }
+//app.delete('/api/admin/bookings/:id', ensureAdmin, async (req, res) => {
+//try {
+//  const id = req.params.id;
+//  const { reason } = req.body || {};
+//  if (!reason || !reason.trim()) {
+//    return res.status(400).json({ error: 'reason_required' });
+//    }
+
+    app.delete('/api/admin/bookings/:id', ensureAdmin, async (req, res) => {
+  const { reason } = req.body || {};
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: 'reason_required' });
+  }
+
 
     const b = await get(
       `SELECT b.id, b.full_name, b.email, b.phone, b.address, b.plz, b.city,
