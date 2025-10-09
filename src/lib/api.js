@@ -26,3 +26,18 @@ export const deleteSlot  = (id) => jfetch(`/api/slots/${id}`, { method:'DELETE' 
 export const listBookingsAdmin = () => jfetch('/api/admin/bookings');
 export const deleteBookingAdmin = (id) => jfetch(`/api/admin/bookings/${id}`, { method:'DELETE' });
 export const csvUrl      = () => `${BASE}/api/bookings.csv`;
+
+
+export async function adminDeleteBooking(id, reason) {
+  const res = await fetch(`/api/admin/bookings/${id}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' }, // važno da body stigne
+    body: JSON.stringify({ reason }),
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`Delete failed: ${res.status} ${t}`);
+  }
+  return res.json().catch(() => ({}));
+}
