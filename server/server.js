@@ -249,34 +249,40 @@ app.post('/api/bookings', async (req, res) => {
     setImmediate(async () => {
   try {
     const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
-  const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
-      brand: process.env.BRAND_NAME || 'MyDienst',
-      toAdmin: process.env.ADMIN_EMAIL,
-      toInvitee: email,
-      slot,
-      booking: { full_name: fullName, email, phone, address, plz, city, note },
-      replyTo,
+        const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
+          brand: process.env.BRAND_NAME || 'MyDienst',
+          toAdmin: process.env.ADMIN_EMAIL,
+          toInvitee: email,
+          slot,
+          booking: { full_name: fullName, email, phone, address, plz, city, note },
+          replyTo,
+        });
+
+        await transport.sendMail({
+          from: process.env.SMTP_USER,
+          to: email,
+          subject,
+          html: htmlInvitee,
+          replyTo,
+        }).catch(console.error);
+
+        if (process.env.ADMIN_EMAIL) {
+          await transport.sendMail({
+            from: process.env.SMTP_USER,
+            to: process.env.ADMIN_EMAIL,
+            subject: `Neue Buchung – ${subject}`,
+            html: htmlAdmin,
+            replyTo,
+          }).catch(console.error);
+        }
+      } catch (err) {
+        console.error('[mail after booking] ', err);
+      }
     });
 
-    // ➜ pošalji kupcu
-    await sendMail({
-      to: email,
-      subject,
-      html: htmlInvitee,
-      replyTo,
-    });
-
-    // ➜ pošalji adminu
-    if (process.env.ADMIN_EMAIL) {
-      await sendMail({
-        to: process.env.ADMIN_EMAIL,
-        subject: `Neue Buchung – ${subject}`,
-        html: htmlAdmin,
-        replyTo,
-      });
-    }
-  } catch (err) {
-    console.error('[mail after booking] ', err);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'booking_failed' });
   }
 });
 
