@@ -258,22 +258,23 @@ app.post('/api/bookings', async (req, res) => {
           replyTo,
         });
 
-        await transport.sendMail({
-          from: process.env.SMTP_USER,
-          to: email,
-          subject,
-          html: htmlInvitee,
-          replyTo,
-        }).catch(console.error);
+         await sendMail({
+      to: email,
+      subject,
+      html: htmlInvitee,
+      replyTo,
+    });
+
+        
 
         if (process.env.ADMIN_EMAIL) {
-          await transport.sendMail({
-            from: process.env.SMTP_USER,
+          await sendMail({
+           // from: process.env.SMTP_USER,
             to: process.env.ADMIN_EMAIL,
             subject: `Neue Buchung – ${subject}`,
             html: htmlAdmin,
             replyTo,
-          }).catch(console.error);
+          });
         }
       } catch (err) {
         console.error('[mail after booking] ', err);
