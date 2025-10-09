@@ -62,13 +62,14 @@ export async function deleteSlot(id) {
 
 /* -------- ADMIN: BOOKINGS -------- */
 // ✅ jedna verzija s opcionalnim filterima
-export async function adminListBookings({ from, to, status = 'active' } = {}) {
+export async function adminListBookings({ from, to } = {}) {
   const p = new URLSearchParams();
-  if (from) p.set('from', from);
-  if (to) p.set('to', to);
-  if (status) p.set('status', status);
-  const qs = p.toString() ? `?${p.toString()}` : '';
-  return jfetch("GET", `/api/admin/bookings${qs}`);
+  if (from) p.set("from", from);
+  if (to) p.set("to", to);
+  const qs = p.toString() ? `?${p.toString()}` : "";
+  const r = await fetch(`/api/admin/bookings${qs}`, { credentials: "include" });
+  if (!r.ok) throw new Error("admin_bookings_failed");
+  return r.json();
 }
 
 export async function adminDeleteBooking(id, reason) {
