@@ -33,19 +33,19 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS canceled_bookings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  booking_id INTEGER,               -- originalni ID rezervacije
-  slot_date TEXT,
-  slot_time TEXT,
-  slot_duration INTEGER,
-  full_name TEXT,
-  email TEXT,
+  booking_id INTEGER NOT NULL,
+  slot_date TEXT NOT NULL,
+  slot_time TEXT NOT NULL,
+  slot_duration INTEGER NOT NULL,
+  full_name TEXT NOT NULL,
+  email TEXT NOT NULL,
   phone TEXT,
   address TEXT,
   plz TEXT,
   city TEXT,
   note TEXT,
-  reason TEXT,                      -- razlog storna
-  canceled_by TEXT,                 -- username operatera/admina
-  canceled_by_id INTEGER,           -- korisnički id
-  canceled_at TEXT NOT NULL DEFAULT (datetime('now'))
+  reason TEXT NOT NULL,
+  canceled_by TEXT,
+  canceled_by_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

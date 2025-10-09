@@ -356,7 +356,7 @@ function rangeWhere(from, to, col = 's.date') {
   return out;
 }
 
-app.get('/api/admin/completed', ensureAdmin, async (req, res) => {
+app.get('/api/admin/completed', ensurePrivileged, async (req, res) => {
   try {
     const { from, to } = req.query || {};
     const r = rangeWhere(from, to);              // filtriramo po datumu slota (s.date)
@@ -417,29 +417,29 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
     if (!row) return res.status(404).json({ error: 'not_found' });
 
     // 2) Upisi u canceled_bookings (audit trag)
-    await run(
-   `INSERT INTO canceled_bookings
+     await run(
+    `INSERT INTO canceled_bookings
       (booking_id, slot_date, slot_time, slot_duration,
        full_name, email, phone, address, plz, city, note,
        reason, canceled_by, canceled_by_id)
-   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  [
-    booking.id,             // booking_id
-    slot.date,              // slot_date
-    slot.time,              // slot_time
-    slot.duration,          // slot_duration
-    b.full_name,            // full_name
-    b.email,                // email
-    b.phone,                // phone
-    b.address,              // address
-    b.plz,                  // plz
-    b.city,                 // city
-    b.note || null,         // note
-    reason,                 // reason
-    actor.username,         // canceled_by
-    actor.uid               // canceled_by_id
-  ]
-);
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      row.id,                    // booking_id
+      row.slot_date,             // slot_date
+      row.slot_time,             // slot_time
+      row.slot_duration,         // slot_duration
+      row.full_name,             // full_name
+      row.email,                 // email
+      row.phone,                 // phone
+      row.address,               // address
+      row.plz,                   // plz
+      row.city,                  // city
+      row.note || null,          // note
+      reason,                    // reason
+      req.user.username,         // canceled_by
+      req.user.uid               // canceled_by_id
+    ]
+  );
 
     // 3) Obriši booking + oslobodi slot
     await run(`DELETE FROM bookings WHERE id=?`, [id]);
@@ -479,20 +479,24 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
 });
 
 // LISTA STORNA (admin i user), filter po datumu slota
-app.get('/api/admin/cancellations', ensureAdmin, async (req, res) => {
+app.get('/api/admin/cancellations', ensurePrivileged, async (req, res) => {
   try {
     const { from, to } = req.query || {};
-    // ovdje filtriramo po *vremenu storniranja* – ima više smisla za izvještaj
-    const r = rangeWhere(from, to, 'b.cancelled_at');
+    const params = [];
+    let where = '1=1';
+    if (from) { where += ' AND x.slot_date >= ?'; params.push(from); }
+    if (to)   { where += ' AND x.slot_date <= ?'; params.push(to); }
+
     const rows = await all(
-      `SELECT b.id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
-              b.cancel_reason, b.cancelled_by, b.cancelled_at
-         FROM bookings b
-         JOIN slots s ON s.id = b.slot_id
-         ${r.sql ? r.sql + ' AND ' : 'WHERE '} b.cancelled_at IS NOT NULL
-       ORDER BY b.cancelled_at DESC`,
-      r.params
+      `SELECT x.id, x.booking_id,
+              x.slot_date, x.slot_time, x.slot_duration,
+              x.full_name, x.email, x.phone, x.address, x.plz, x.city, x.note,
+              x.reason, x.canceled_by, x.canceled_by_id,
+              x.created_at AS canceled_at
+         FROM canceled_bookings x
+        WHERE ${where}
+        ORDER BY x.slot_date, x.slot_time`,
+      params
     );
     res.json(rows);
   } catch (e) {
