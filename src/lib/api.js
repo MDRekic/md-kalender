@@ -27,17 +27,6 @@ async function jfetch(method, path, data) {
   return json;
 }
 
-export async function adminListBookings({ from, to } = {}) {
-  const p = new URLSearchParams();
-  if (from) p.set('from', from);
-  if (to) p.set('to', to);
-  const qs = p.toString() ? `?${p.toString()}` : '';
-  const r = await fetch(`/api/admin/bookings${qs}`, { credentials: 'include' });
-  if (!r.ok) throw new Error('admin_bookings_failed');
-  return r.json();
-}
-
-
 /* -------- PUBLIC -------- */
 export async function listSlots(date) {
   const q = date ? `?date=${encodeURIComponent(date)}` : "";
@@ -72,9 +61,15 @@ export async function deleteSlot(id) {
 }
 
 /* -------- ADMIN: BOOKINGS -------- */
-export async function adminListBookings() {
-  return jfetch("GET", "/api/admin/bookings");
+// ✅ jedna verzija s opcionalnim filterima
+export async function adminListBookings({ from, to } = {}) {
+  const p = new URLSearchParams();
+  if (from) p.set("from", from);
+  if (to) p.set("to", to);
+  const qs = p.toString() ? `?${p.toString()}` : "";
+  return jfetch("GET", `/api/admin/bookings${qs}`);
 }
+
 export async function adminDeleteBooking(id, reason) {
   return jfetch("DELETE", `/api/admin/bookings/${id}`, { reason });
 }
