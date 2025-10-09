@@ -55,6 +55,34 @@ app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(express.json());
 app.use(cookieParser());
 
+
+function getSession(req) {
+  const token = req.cookies?.admtk;
+  return token && verifyToken(token, process.env.JWT_SECRET || 'secret');
+}
+
+/** dozvoli i admin i user */
+function ensureStaff(req, res, next) {
+  const u = getSession(req);
+  if (!u || !['admin', 'user'].includes(u.role)) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  req.user = u;
+  next();
+}
+
+/** dozvoli samo admin */
+function ensureAdminOnly(req, res, next) {
+  const u = getSession(req);
+  if (!u || u.role !== 'admin') {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  req.user = u;
+  next();
+}
+
+
+
 // CORS
 app.use(
   cors({
@@ -116,14 +144,18 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.get('/api/auth/me', (req, res) => {
-  const token = req.cookies?.admtk;
-  const decoded = token && verifyToken(token, process.env.JWT_SECRET || 'secret');
-  res.json({ admin: !!decoded?.admin, user: decoded || null });
+  const u = getSession(req);
+  res.json({
+    ok: !!u,
+    role: u?.role || null,
+    username: u?.username || null,
+    admin: u?.role === 'admin',   // zadržavamo staro polje zbog kompatibilnosti
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────────────
 // USER MANAGEMENT (opciono)
-app.post('/api/admin/users', ensureAdmin, async (req, res) => {
+app.post('/api/admin/users', ensureAdminOnly, async (req, res) => {
   try {
     const { username, password, role = 'admin', email = null } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'missing_fields' });
@@ -142,7 +174,7 @@ app.post('/api/admin/users', ensureAdmin, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/users/:id', ensureAdmin, async (req, res) => {
+app.patch('/api/admin/users/:id', ensureAdminOnly, async (req, res) => {
   try {
     const { password, role, email } = req.body || {};
     const id = req.params.id;
@@ -160,7 +192,7 @@ app.patch('/api/admin/users/:id', ensureAdmin, async (req, res) => {
   }
 });
 
-app.get('/api/admin/users', ensureAdmin, async (_req, res) => {
+app.get('/api/admin/users', ensureAdminOnly, async (_req, res) => {
   try {
     const rows = await all('SELECT id, username, role, email FROM users ORDER BY username');
     res.json(rows);
@@ -170,7 +202,7 @@ app.get('/api/admin/users', ensureAdmin, async (_req, res) => {
   }
 });
 
-app.delete('/api/admin/users/:id', ensureAdmin, async (req, res) => {
+app.delete('/api/admin/users/:id', ensureAdminOnly, async (req, res) => {
   try {
     const { changes } = await run('DELETE FROM users WHERE id=?', [req.params.id]);
     res.json({ deleted: changes });
@@ -195,7 +227,7 @@ app.get('/api/slots', async (req, res) => {
   }
 });
 
-app.post('/api/slots', ensureAdmin, async (req, res) => {
+app.post('/api/slots', ensureStaff, async (req, res) => {
   try {
     const { date, time, duration = 120 } = req.body || {};
     if (!date || !time) return res.status(400).json({ error: 'missing_fields' });
@@ -212,7 +244,7 @@ app.post('/api/slots', ensureAdmin, async (req, res) => {
   }
 });
 
-app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
+app.delete('/api/slots/:id', ensureStaff, async (req, res) => {
   try {
     const { changes } = await run(
       'DELETE FROM slots WHERE id=? AND status!="booked"',
@@ -227,7 +259,7 @@ app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
 
 
 // BULK: kreiraj više slotova odjednom
-app.post('/api/slots/bulk', ensureAdmin, async (req, res) => {
+app.post('/api/slots/bulk', ensureAdminOnly, async (req, res) => {
   try {
     const { from, to, time, duration = 120, daysOfWeek } = req.body || {};
     // daysOfWeek: niz integera 1..7 (1=Mon, 7=Sun)
@@ -376,7 +408,7 @@ setImmediate(async () => {
 
 // ADMIN – list
 // LIST (admin)
-app.get('/api/admin/bookings', ensureAdmin, async (req, res) => {
+app.get('/api/admin/bookings', ensureStaff, async (req, res) => {
   try {
     const { from, to, status = 'active' } = req.query;
 
@@ -419,7 +451,7 @@ app.get('/api/admin/bookings', ensureAdmin, async (req, res) => {
 
 
 // CSV (admin) – ista logika filtera
-app.get('/api/bookings.csv', ensureAdmin, async (req, res) => {
+app.get('/api/bookings.csv', ensureStaff, async (req, res) => {
   try {
     const { from, to } = req.query || {};
     let rows;
