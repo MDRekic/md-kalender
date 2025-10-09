@@ -67,12 +67,3 @@ export async function adminListBookings() {
 export async function adminDeleteBooking(id, reason) {
   return jfetch("DELETE", `/api/admin/bookings/${id}`, { reason });
 }
-export async function adminListBookings({ from, to } = {}) {
-  const p = new URLSearchParams();
-  if (from) p.set('from', from);
-  if (to) p.set('to', to);
-  const qs = p.toString() ? `?${p.toString()}` : '';
-  const r = await fetch(`/api/admin/bookings${qs}`, { credentials: 'include' });
-  if (!r.ok) throw new Error('admin_bookings_failed');
-  return r.json();
-}
