@@ -78,3 +78,8 @@ export async function adminDeleteBooking(id, reason) {
 export async function adminMarkDone(id) {
   return jfetch("PATCH", `/api/admin/bookings/${id}/done`);
 }
+
+// kreiraj više slotova odjednom
+export async function createSlotsBulk(payload) {
+  return jfetch("POST", "/api/slots/bulk", payload);
+}

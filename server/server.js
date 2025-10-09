@@ -225,6 +225,63 @@ app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
   }
 });
 
+
+// BULK: kreiraj više slotova odjednom
+app.post('/api/slots/bulk', ensureAdmin, async (req, res) => {
+  try {
+    const { from, to, time, duration = 120, daysOfWeek } = req.body || {};
+    // daysOfWeek: niz integera 1..7 (1=Mon, 7=Sun)
+
+    if (!from || !to || !time || !/^\d{2}:\d{2}$/.test(time)) {
+      return res.status(400).json({ error: 'missing_fields' });
+    }
+    const wantedDays = Array.isArray(daysOfWeek) && daysOfWeek.length
+      ? new Set(daysOfWeek.map(Number))
+      : new Set([1,2,3,4,5,6,7]); // ako nije dato, sve dane
+
+    const start = new Date(from + 'T00:00:00');
+    const end   = new Date(to   + 'T00:00:00');
+    if (isNaN(start) || isNaN(end) || start > end) {
+      return res.status(400).json({ error: 'bad_range' });
+    }
+
+    let created = 0, skipped = 0, conflicts = 0;
+
+    await run('BEGIN');
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      // 1=Mon ... 7=Sun (ISO day)
+      const day = ((d.getDay() + 6) % 7) + 1;
+      if (!wantedDays.has(day)) continue;
+
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${dd}`;
+
+      // postoji li već slot za taj datum+vrijeme?
+      const exists = await get('SELECT id, status FROM slots WHERE date=? AND time=?', [dateStr, time]);
+      if (exists) {
+        // ako je već bukiran ili već postoji – preskoči kao konflikt/skip
+        conflicts += (exists.status === 'booked') ? 1 : 0;
+        skipped   += (exists.status !== 'booked') ? 1 : 0;
+        continue;
+      }
+
+      await run('INSERT INTO slots (date,time,duration,status) VALUES (?,?,?,?)', [dateStr, time, duration, 'free']);
+      created++;
+    }
+    await run('COMMIT');
+
+    res.json({ created, skipped, conflicts });
+  } catch (e) {
+    console.error(e);
+    try { await run('ROLLBACK'); } catch (_) {}
+    res.status(500).json({ error: 'bulk_create_failed' });
+  }
+});
+
+
+
 // ───────────────────────────────────────────────────────────────────────────────
 // BOOKINGS (public POST)
 app.post('/api/bookings', async (req, res) => {

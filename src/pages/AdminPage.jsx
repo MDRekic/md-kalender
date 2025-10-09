@@ -6,7 +6,7 @@ import AdminLogin from "../components/AdminLogin";
 import AdminDashboard from "../components/AdminDashboard";
 import CalendarMonth from "../components/CalendarMonth";
 import AdminQuickAdd from "../components/AdminQuickAdd";
-
+import AdminBulkAdd from "../components/AdminBulkAdd";
 import { addMonths, ymd } from "../lib/date";
 import {
   authMe, authLogin, authLogout,
@@ -156,6 +156,15 @@ export default function AdminPage() {
 
           <AdminQuickAdd onAdd={(t, d) => addSlot(t, d)} />
 
+            <AdminBulkAdd
+                selectedDate={selectedDate}
+                activeDate={activeDate}
+                onDone={() => {
+                  // poslije bulk dodavanja, osvježi slotove
+                  listSlots().then(setSlots).catch(() => setSlots([]));
+            }}
+/>
+
           {daySlots.length === 0 ? (
             <p className="mt-2 text-slate-500">Keine Termine an diesem Tag.</p>
           ) : (
@@ -201,4 +210,6 @@ export default function AdminPage() {
       </div>
     </div>
   );
+
+  
 }
