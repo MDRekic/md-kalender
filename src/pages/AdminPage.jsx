@@ -1,4 +1,3 @@
-// src/pages/AdminPage.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -9,12 +8,8 @@ import AdminQuickAdd from "../components/AdminQuickAdd";
 
 import { addMonths, ymd } from "../lib/date";
 import {
-  authMe,
-  authLogin,
-  authLogout,
-  listSlots,
-  createSlot,
-  deleteSlot as apiDeleteSlot,
+  authMe, authLogin, authLogout,
+  listSlots, createSlot, deleteSlot as apiDeleteSlot,
 } from "../lib/api";
 
 export default function AdminPage() {
@@ -26,14 +21,14 @@ export default function AdminPage() {
 
   const todayStr = useMemo(() => ymd(new Date()), []);
 
-  // provjera sesije
+  // provjeri sesiju
   useEffect(() => {
     authMe()
       .then((r) => setIsAdmin(!!r.admin))
       .catch(() => setIsAdmin(false));
   }, []);
 
-  // učitaj slotove (može sve pa filtriramo po selectedDate)
+  // učitaj sve slotove (filtriramo po selectedDate lokalno)
   useEffect(() => {
     if (!isAdmin) return;
     listSlots()
@@ -41,7 +36,7 @@ export default function AdminPage() {
       .catch(() => setSlots([]));
   }, [isAdmin, selectedDate]);
 
-  // slotovi samo za označeni dan
+  // slotovi za odabrani dan (sortirani)
   const daySlots = useMemo(
     () =>
       slots
@@ -65,13 +60,14 @@ export default function AdminPage() {
   }
 
   async function addSlot(timeStr, durationMin = 120) {
-    if (!/^\d{2}:\d{2}$/.test(timeStr))
+    if (!/^\d{2}:\d{2}$/.test(timeStr)) {
       return alert("Uhrzeit im Format HH:MM (z. B. 08:10).");
+    }
     try {
       const created = await createSlot({
         date: selectedDate,
         time: timeStr,
-        duration: durationMin,
+        duration: Number(durationMin) || 120,
       });
       setSlots((prev) =>
         [...prev, created].sort((a, b) => a.time.localeCompare(b.time))
@@ -91,7 +87,9 @@ export default function AdminPage() {
   }
 
   function clearDay() {
-    // za sada samo refresh (ako želiš brisanje svih free slotova, to je poseban endpoint)
+    if (!window.confirm("Alle freien Slots für diesen Tag löschen?")) return;
+    // ako želiš stvarno brisati sve slobodne slotove za dan,
+    // to se radi backend rutom — ovdje samo re-fetch:
     listSlots().then(setSlots);
   }
 
@@ -159,7 +157,7 @@ export default function AdminPage() {
           <AdminQuickAdd onAdd={(t, d) => addSlot(t, d)} />
 
           {daySlots.length === 0 ? (
-            <p className="mt-2 text-slate-500">Keine Termine an diesem Tag.</p>
+            <p className="text-slate-500 mt-2">Keine Termine an diesem Tag.</p>
           ) : (
             <ul className="mt-3 space-y-2">
               {daySlots.map((s) => (
@@ -198,6 +196,7 @@ export default function AdminPage() {
       </div>
 
       <div className="mt-6">
+        {/* AdminDashboard neka i dalje upravlja rezervacijama (lista, brisanje s razlogom, mailovi, filteri…) */}
         <AdminDashboard onLogout={handleLogout} />
       </div>
     </div>
