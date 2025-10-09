@@ -97,3 +97,6 @@ export async function adminUpdateUser(id, patch) {
 export async function adminDeleteUser(id) {
   return jfetch("DELETE", `/api/admin/users/${id}`);
 }
+export async function adminCompleteBooking(id) {
+  return jfetch("POST", `/api/admin/bookings/${id}/complete`);
+}

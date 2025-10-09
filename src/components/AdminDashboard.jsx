@@ -71,6 +71,22 @@ export default function AdminDashboard() {
         >
           Fertig
         </button>
+
+        <button
+  onClick={async () => {
+    try {
+      await adminCompleteBooking(row.id);
+      await reloadLists(); // osvježi otvorene + erledigte (tvoja postojeća funkcija za refetch)
+    } catch (e) {
+      console.error(e);
+      alert('Fertig fehlgeschlagen.');
+    }
+  }}
+  className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50"
+>
+  Fertig
+</button>
+
         <button
           onClick={() => handleDelete(row)}
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
@@ -95,6 +111,16 @@ export default function AdminDashboard() {
               <th className="px-4 py-2 text-left">Telefon</th>
               <th className="px-4 py-2 text-left">Adresse</th>
               <th className="px-4 py-2 text-left">Aktionen</th>
+              <td className="px-2 py-2">
+  {row.completed_by_name ? (
+    <>
+      <div className="text-sm">Erledigt von: <b>{row.completed_by_name}</b></div>
+      <div className="text-xs text-slate-500">{row.completed_at}</div>
+    </>
+  ) : (
+    "—"
+  )}
+</td>
             </tr>
           </thead>
           <tbody>
@@ -136,6 +162,7 @@ export default function AdminDashboard() {
   }
 
   return (
+    
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <h2 className="mr-auto text-lg font-semibold">Admin – Reservierungen</h2>

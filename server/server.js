@@ -105,6 +105,59 @@ function ensureAdmin(req, res, next) {
   next();
 }
 
+
+app.post('/api/admin/bookings/:id/complete', ensureAdmin, async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    // provjeri da booking postoji
+    const b = await get(
+      `SELECT b.id, s.id AS slot_id
+         FROM bookings b
+         JOIN slots s ON s.id = b.slot_id
+        WHERE b.id = ?`, [id]
+    );
+    if (!b) return res.status(404).json({ error: 'not_found' });
+
+    // upiši ko je završio
+    await run(
+      `UPDATE bookings
+          SET done = 1,
+              completed_by = ?,
+              completed_by_name = ?,
+              completed_at = datetime('now')
+        WHERE id = ?`,
+      [req.admin.uid, req.admin.username, id]
+    );
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'complete_failed' });
+  }
+});
+
+
+app.get('/api/admin/bookings/completed', ensureAdmin, async (_req, res) => {
+  try {
+    const rows = await all(
+      `SELECT b.id, s.date, s.time, s.duration,
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
+              b.completed_by, b.completed_by_name, b.completed_at
+         FROM bookings b
+         JOIN slots s ON s.id = b.slot_id
+        WHERE b.done = 1
+        ORDER BY s.date DESC, s.time DESC`
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'completed_list_failed' });
+  }
+});
+
+
+
 // ───────────────────────────────────────────────────────────────────────────────
 // AUTH
 app.post('/api/auth/login', async (req, res) => {
