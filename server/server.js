@@ -179,110 +179,69 @@ app.get('/api/admin/users', ensureAdmin, async (_req, res) => {
   }
 });
 
-app.delete('/api/admin/users/:id', ensureAdmin, async (req, res) => {
-  try {
-    const { changes } = await run('DELETE FROM users WHERE id=?', [req.params.id]);
-    res.json({ deleted: changes });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'user_delete_failed' });
+app.delete('/api/admin/bookings/:id', ensureAdmin, async (req, res) => {
+  const id = req.params.id;
+  const { reason } = req.body || {};
+
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: 'reason_required' });
   }
-});
 
-// ---------- SLOTS ----------
-app.get('/api/slots', async (req, res) => {
   try {
-    const { date } = req.query;
-    const rows = date
-      ? await all('SELECT * FROM slots WHERE date=? ORDER BY time', [date])
-      : await all('SELECT * FROM slots ORDER BY date,time');
-    res.json(rows);
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'slots_list_failed' });
-  }
-});
-
-app.post('/api/slots', ensureAdmin, async (req, res) => {
-  try {
-    const { date, time, duration = 120 } = req.body || {};
-    if (!date || !time) return res.status(400).json({ error: 'missing_fields' });
-
-    const { id } = await run(
-      'INSERT INTO slots (date,time,duration,status) VALUES (?,?,?,?)',
-      [date, time, duration, 'free']
+    // 1) Učitaj booking + slot (TOČNI nazivi kolona u tvojoj šemi!)
+    const booking = await get(
+      `SELECT 
+         b.id, b.full_name, b.email, b.phone, b.address, b.plz, b.city,
+         s.date, s.time, s.duration, s.id AS slot_id
+       FROM bookings b
+       JOIN slots s ON s.id = b.slot_id
+       WHERE b.id = ?`,
+      [id]
     );
-    const row = await get('SELECT * FROM slots WHERE id=?', [id]);
-    res.json(row);
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'slot_create_failed' });
-  }
-});
+    if (!booking) return res.status(404).json({ error: 'not_found' });
 
-app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
-  try {
-    const { changes } = await run(
-      'DELETE FROM slots WHERE id=? AND status!="booked"',
-      [req.params.id]
-    );
-    res.json({ deleted: changes });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'slot_delete_failed' });
-  }
-});
+    // 2) Obriši booking i oslobodi slot
+    await run(`DELETE FROM bookings WHERE id = ?`, [id]);
+    await run(`UPDATE slots SET status = 'free' WHERE id = ?`, [booking.slot_id]);
 
-// ---------- BOOKINGS (public POST) ----------
-app.post('/api/bookings', async (req, res) => {
-  try {
-         const { slotId, fullName, email, phone, address, plz, city, note } = req.body || {};
-        if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
-          return res.status(400).json({ error: 'missing_fields' });
-        }
+    // 3) E-mailovi
+    const when = `${booking.date} ${booking.time}`;
+    const subject = `Termin storniert – ${when}`;
+    const html = `
+      <p>Guten Tag ${escapeHtml(booking.full_name)},</p>
+      <p>Ihr Termin am <b>${booking.date}</b> um <b>${booking.time}</b> (Dauer ${booking.duration} Min.) wurde storniert.</p>
+      <p><b>Grund:</b> ${escapeHtml(reason)}</p>
+      <p>Bei Rückfragen melden Sie sich bitte bei uns.</p>
+      <p>— ${process.env.BRAND_NAME || 'MyDienst'}</p>
+    `;
 
-    const slot = await get('SELECT * FROM slots WHERE id=?', [slotId]);
-    if (!slot) return res.status(404).json({ error: 'slot_not_found' });
-    if (slot.status === 'booked') return res.status(409).json({ error: 'already_booked' });
-
-    const { id: bookingId } = await run(
-      'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note) VALUES (?,?,?,?,?,?,?,?)',
-        [slotId, fullName, email, phone, address, plz, city, note || null]  
-    );
-    await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
-
-    // ✉️ email-notifikacije
-    const transport = makeTransport();
-    const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
-    const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
-      brand: process.env.BRAND_NAME || 'MyDienst',
-      toAdmin: process.env.ADMIN_EMAIL,
-      toInvitee: email,
-      slot,
-      booking: { full_name: fullName, email, phone, address, plz, city, note },
-      replyTo,
+    await sendMail({
+      to: booking.email,
+      subject,
+      html,
     });
 
-    transport.sendMail({
-      from: process.env.SMTP_USER,
-      to: email,
-      subject,
-      html: htmlInvitee,
-      replyTo,
-    }).catch(console.error);
-
-    transport.sendMail({
-      from: process.env.SMTP_USER,
+    const adminHtml = `
+      <p>Folgender Termin wurde storniert:</p>
+      <ul>
+        <li><b>Kunde:</b> ${escapeHtml(booking.full_name)} (${escapeHtml(booking.email)})</li>
+        <li><b>Telefon:</b> ${escapeHtml(booking.phone || '')}</li>
+        <li><b>Adresse:</b> ${escapeHtml(booking.address || '')}, ${escapeHtml(booking.plz || '')} ${escapeHtml(booking.city || '')}</li>
+        <li><b>Datum/Zeit:</b> ${booking.date} ${booking.time}</li>
+        <li><b>Dauer:</b> ${booking.duration} Min.</li>
+      </ul>
+      <p><b>Grund:</b> ${escapeHtml(reason)}</p>
+    `;
+    await sendMail({
       to: process.env.ADMIN_EMAIL,
-      subject: `Neue Buchung – ${subject}`,
-      html: htmlAdmin,
-      replyTo,
-    }).catch(console.error);
+      subject: `ADMIN: ${subject}`,
+      html: adminHtml,
+    });
 
-    res.json({ bookingId, slotId });
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'booking_failed' });
+    res.status(500).json({ error: 'server_error' });
   }
 });
 
