@@ -1,212 +1,225 @@
-// client/src/components/AdminDashboard.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   adminListBookings,
   adminDeleteBooking,
-  adminMarkDone,
+  adminCompleteBooking,
   printUrl,
 } from "../lib/api";
 
 export default function AdminDashboard() {
+  const [loading, setLoading] = useState(false);
+  const [openBookings, setOpenBookings] = useState([]);
+  const [doneBookings, setDoneBookings] = useState([]);
+
+  // (opciono) filteri po datumu — možeš ih koristiti ili sakriti
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
-  const [activeRows, setActiveRows] = useState([]);
-  const [doneRows, setDoneRows] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  async function load() {
+  const fetchOpen = useCallback(async () => {
     setLoading(true);
     try {
-      const [act, done] = await Promise.all([
-        adminListBookings({ from, to, status: "active" }),
-        adminListBookings({ from, to, status: "done" }),
-      ]);
-      setActiveRows(act);
-      setDoneRows(done);
+      const rows = await adminListBookings({ from, to, done: 0 });
+      setOpenBookings(rows || []);
     } finally {
       setLoading(false);
     }
-  }
+  }, [from, to]);
+
+  const fetchDone = useCallback(async () => {
+    try {
+      const rows = await adminListBookings({ from, to, done: 1 });
+      setDoneBookings(rows || []);
+    } catch {
+      // ignore
+    }
+  }, [from, to]);
+
+  const reloadLists = useCallback(async () => {
+    await Promise.all([fetchOpen(), fetchDone()]);
+  }, [fetchOpen, fetchDone]);
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    reloadLists();
+  }, [reloadLists]);
 
-  function resetFilters() {
-    setFrom("");
-    setTo("");
-    setTimeout(load, 0);
-  }
-
-  async function handleDelete(b) {
+  async function onDelete(b) {
     const reason = prompt("Bitte Stornogrund eingeben (Pflichtfeld):");
-    if (reason == null) return;
-    if (!reason.trim()) return alert("Stornogrund ist erforderlich.");
-    await adminDeleteBooking(b.id, reason);
-    await load();
-  }
-
-  async function handleDone(b) {
-    await adminMarkDone(b.id);
-    await load();
-  }
-
-  function RowActions({ row }) {
-    return (
-      <div className="flex gap-2">
-        <a
-          href={printUrl(row.id)}
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-        >
-          Drucken
-        </a>
-        <button
-          onClick={() => handleDone(row)}
-          className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50"
-          title="Als erledigt markieren"
-        >
-          Fertig
-        </button>
-
-        <button
-  onClick={async () => {
+    if (reason == null) return; // cancel
+    if (!reason.trim()) {
+      alert("Stornogrund ist erforderlich.");
+      return;
+    }
     try {
-      await adminCompleteBooking(row.id);
-      await reloadLists(); // osvježi otvorene + erledigte (tvoja postojeća funkcija za refetch)
+      await adminDeleteBooking(b.id, reason);
+      await reloadLists();
     } catch (e) {
       console.error(e);
-      alert('Fertig fehlgeschlagen.');
+      alert("Löschen fehlgeschlagen.");
     }
-  }}
-  className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50"
->
-  Fertig
-</button>
-
-        <button
-          onClick={() => handleDelete(row)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-        >
-          Löschen
-        </button>
-      </div>
-    );
   }
 
-  function Table({ rows, showDoneActions = false }) {
-    return (
-      <div className="overflow-x-auto rounded-xl border border-slate-200">
-        <table className="min-w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="px-4 py-2 text-left">Datum</th>
-              <th className="px-4 py-2 text-left">Uhrzeit</th>
-              <th className="px-4 py-2 text-left">Dauer</th>
-              <th className="px-4 py-2 text-left">Name</th>
-              <th className="px-4 py-2 text-left">E-Mail</th>
-              <th className="px-4 py-2 text-left">Telefon</th>
-              <th className="px-4 py-2 text-left">Adresse</th>
-              <th className="px-4 py-2 text-left">Aktionen</th>
-              <td className="px-2 py-2">
-  {row.completed_by_name ? (
-    <>
-      <div className="text-sm">Erledigt von: <b>{row.completed_by_name}</b></div>
-      <div className="text-xs text-slate-500">{row.completed_at}</div>
-    </>
-  ) : (
-    "—"
-  )}
-</td>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t">
-                <td className="px-4 py-2">{r.date}</td>
-                <td className="px-4 py-2">{r.time}</td>
-                <td className="px-4 py-2">{r.duration} Min.</td>
-                <td className="px-4 py-2">{r.full_name}</td>
-                <td className="px-4 py-2">{r.email}</td>
-                <td className="px-4 py-2">{r.phone}</td>
-                <td className="px-4 py-2">
-                  {r.address}
-                  {r.plz ? `, ${r.plz}` : ""} {r.city || ""}
-                </td>
-                <td className="px-4 py-2">
-                  {showDoneActions ? (
-                    // U "done" tabeli nema "Fertig", samo “Drucken” (i po želji “Löschen”)
-                    <div className="flex gap-2">
-                      <a
-                        href={printUrl(r.id)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-                      >
-                        Drucken
-                      </a>
-                    </div>
-                  ) : (
-                    <RowActions row={r} />
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
+  async function onComplete(b) {
+    try {
+      await adminCompleteBooking(b.id);
+      await reloadLists();
+    } catch (e) {
+      console.error(e);
+      alert("Fertig markieren fehlgeschlagen.");
+    }
   }
 
   return (
-    
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <h2 className="mr-auto text-lg font-semibold">Admin – Reservierungen</h2>
-        <input
-          type="date"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          placeholder="Von"
-        />
-        <input
-          type="date"
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          placeholder="Bis"
-        />
-        <button
-          onClick={load}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
-          disabled={loading}
-        >
-          Filtern
-        </button>
-        <button
-          onClick={resetFilters}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
-        >
-          Reset
-        </button>
-        <a
-          href={`/api/bookings.csv`}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
-        >
-          CSV exportieren
-        </a>
+      <div className="mb-3 flex flex-wrap items-end gap-3">
+        <h2 className="text-lg font-semibold">Admin – Reservierungen</h2>
+
+        {/* Filteri (opciono) */}
+        <div className="ml-auto flex items-end gap-2">
+          <div>
+            <label className="block text-xs text-slate-600">Von (YYYY-MM-DD)</label>
+            <input
+              type="date"
+              className="rounded-lg border border-slate-300 px-2 py-1.5"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-600">Bis (YYYY-MM-DD)</label>
+            <input
+              type="date"
+              className="rounded-lg border border-slate-300 px-2 py-1.5"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
+          </div>
+          <button
+            onClick={reloadLists}
+            className="h-[38px] rounded-lg border border-slate-300 px-3 text-sm hover:bg-slate-50"
+          >
+            Filtern
+          </button>
+        </div>
       </div>
 
-      {/* Aktive */}
-      <Table rows={activeRows} />
+      {/* Otvorene rezervacije */}
+      <div className="mb-6">
+        <h3 className="mb-2 text-base font-semibold">Offene Reservierungen</h3>
+        {loading ? (
+          <p className="text-slate-500">Lade…</p>
+        ) : openBookings.length === 0 ? (
+          <p className="text-slate-500">Keine offenen Einträge.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50">
+                  <th className="px-2 py-2 text-left">Datum</th>
+                  <th className="px-2 py-2 text-left">Zeit</th>
+                  <th className="px-2 py-2 text-left">Kunde</th>
+                  <th className="px-2 py-2 text-left">Kontakt</th>
+                  <th className="px-2 py-2 text-left">Adresse</th>
+                  <th className="px-2 py-2 text-left">Notiz</th>
+                  <th className="px-2 py-2 text-left w-[210px]">Aktionen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {openBookings.map((b) => (
+                  <tr key={b.id} className="border-b">
+                    <td className="px-2 py-2">{b.date}</td>
+                    <td className="px-2 py-2">{b.time} · {b.duration} Min.</td>
+                    <td className="px-2 py-2">{b.full_name}</td>
+                    <td className="px-2 py-2">
+                      <div>{b.email}</div>
+                      {b.phone ? <div className="text-slate-500">{b.phone}</div> : null}
+                    </td>
+                    <td className="px-2 py-2">
+                      {b.address}
+                      {b.plz || b.city ? (
+                        <div className="text-slate-500">
+                          {b.plz} {b.city}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="px-2 py-2">{b.note || "—"}</td>
+                    <td className="px-2 py-2">
+                      <div className="flex flex-wrap gap-2">
+                        <a
+                          href={printUrl(b.id)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 hover:bg-slate-50"
+                        >
+                          Drucken
+                        </a>
+                        <button
+                          onClick={() => onDelete(b)}
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 hover:bg-slate-50"
+                        >
+                          Löschen
+                        </button>
+                        <button
+                          onClick={() => onComplete(b)}
+                          className="rounded-lg border border-emerald-300 px-3 py-1.5 text-emerald-700 hover:bg-emerald-50"
+                        >
+                          Fertig
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
-      {/* Erledigte */}
-      <h3 className="mt-8 mb-3 text-base font-semibold">Erledigte Aufträge</h3>
-      <Table rows={doneRows} showDoneActions />
+      {/* Erledigte Aufträge */}
+      <div>
+        <h3 className="mb-2 text-base font-semibold">Erledigte Aufträge</h3>
+        {doneBookings.length === 0 ? (
+          <p className="text-slate-500">Keine erledigten Einträge.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50">
+                  <th className="px-2 py-2 text-left">Datum</th>
+                  <th className="px-2 py-2 text-left">Zeit</th>
+                  <th className="px-2 py-2 text-left">Kunde</th>
+                  <th className="px-2 py-2 text-left">Kontakt</th>
+                  <th className="px-2 py-2 text-left">Adresse</th>
+                  <th className="px-2 py-2 text-left">Erledigt von</th>
+                  <th className="px-2 py-2 text-left">Erledigt am</th>
+                </tr>
+              </thead>
+              <tbody>
+                {doneBookings.map((b) => (
+                  <tr key={b.id} className="border-b">
+                    <td className="px-2 py-2">{b.date}</td>
+                    <td className="px-2 py-2">{b.time} · {b.duration} Min.</td>
+                    <td className="px-2 py-2">{b.full_name}</td>
+                    <td className="px-2 py-2">
+                      <div>{b.email}</div>
+                      {b.phone ? <div className="text-slate-500">{b.phone}</div> : null}
+                    </td>
+                    <td className="px-2 py-2">
+                      {b.address}
+                      {b.plz || b.city ? (
+                        <div className="text-slate-500">
+                          {b.plz} {b.city}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="px-2 py-2">{b.completed_by_name || "—"}</td>
+                    <td className="px-2 py-2">{b.completed_at || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
