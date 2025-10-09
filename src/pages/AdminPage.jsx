@@ -7,6 +7,7 @@ import AdminDashboard from "../components/AdminDashboard";
 import CalendarMonth from "../components/CalendarMonth";
 import AdminQuickAdd from "../components/AdminQuickAdd";
 import AdminBulkAdd from "../components/AdminBulkAdd";
+import AdminUserManager from "../components/AdminUserManager";
 
 import { addMonths, ymd } from "../lib/date";
 import {
@@ -253,6 +254,12 @@ async function handleLogin(username, password) {
         {/* lista rezervacija, filtri, “Fertig”, brisanje s razlogom, CSV… */}
         <AdminDashboard onLogout={handleLogout} />
       </div>
+
+      {userRole === "admin" && (
+  <div className="mt-6">
+    <AdminUserManager />
+  </div>
+)}
     </div>
   );
 }
