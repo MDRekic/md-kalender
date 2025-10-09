@@ -9,6 +9,7 @@ sqlite3.verbose();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // >>> Jedna jedina baza koju backend koristi:
 const DB_PATH = path.join(__dirname, 'mydienst.sqlite');
+console.log('[DB] Using file:', DB_PATH);
 
 const db = new sqlite3.Database(DB_PATH);
 
