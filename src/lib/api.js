@@ -27,6 +27,17 @@ async function jfetch(method, path, data) {
   return json;
 }
 
+export async function adminListBookings({ from, to } = {}) {
+  const p = new URLSearchParams();
+  if (from) p.set('from', from);
+  if (to) p.set('to', to);
+  const qs = p.toString() ? `?${p.toString()}` : '';
+  const r = await fetch(`/api/admin/bookings${qs}`, { credentials: 'include' });
+  if (!r.ok) throw new Error('admin_bookings_failed');
+  return r.json();
+}
+
+
 /* -------- PUBLIC -------- */
 export async function listSlots(date) {
   const q = date ? `?date=${encodeURIComponent(date)}` : "";
