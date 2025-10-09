@@ -1,3 +1,4 @@
+// src/pages/AdminPage.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -6,14 +7,21 @@ import AdminDashboard from "../components/AdminDashboard";
 import CalendarMonth from "../components/CalendarMonth";
 import AdminQuickAdd from "../components/AdminQuickAdd";
 import AdminBulkAdd from "../components/AdminBulkAdd";
+
 import { addMonths, ymd } from "../lib/date";
 import {
-  authMe, authLogin, authLogout,
-  listSlots, createSlot, deleteSlot as apiDeleteSlot,
+  authMe,
+  authLogin,
+  authLogout,
+  listSlots,
+  createSlot,
+  deleteSlot as apiDeleteSlot,
 } from "../lib/api";
 
 export default function AdminPage() {
-  const [isAdmin, setIsAdmin] = useState(false);
+  // ✅ više ne koristimo “isAdmin” kao gate; želimo da i user uđe
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userRole, setUserRole] = useState(null); // "admin" | "user" | null
 
   const [activeDate, setActiveDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => ymd(new Date()));
@@ -21,22 +29,28 @@ export default function AdminPage() {
 
   const todayStr = useMemo(() => ymd(new Date()), []);
 
-  // provjeri sesiju
+  // provjera sesije (na mount)
   useEffect(() => {
     authMe()
-      .then((r) => setIsAdmin(!!r.admin))
-      .catch(() => setIsAdmin(false));
+      .then((r) => {
+        setIsLoggedIn(!!r.user);
+        setUserRole(r.user?.role || null);
+      })
+      .catch(() => {
+        setIsLoggedIn(false);
+        setUserRole(null);
+      });
   }, []);
 
-  // učitaj sve slotove (filtriramo po selectedDate lokalno)
+  // učitaj sve slotove čim je korisnik ulogovan (admin ili user)
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isLoggedIn) return;
     listSlots()
       .then(setSlots)
       .catch(() => setSlots([]));
-  }, [isAdmin, selectedDate]);
+  }, [isLoggedIn, selectedDate]);
 
-  // slotovi za odabrani dan (sortirani)
+  // slotovi za dan
   const daySlots = useMemo(
     () =>
       slots
@@ -48,7 +62,10 @@ export default function AdminPage() {
   async function handleLogin(username, password) {
     try {
       await authLogin(username, password);
-      setIsAdmin(true);
+      // nakon login-a povuci /auth/me da dobijemo rolu
+      const r = await authMe();
+      setIsLoggedIn(!!r.user);
+      setUserRole(r.user?.role || null);
     } catch {
       alert("Falscher Benutzername oder Passwort.");
     }
@@ -56,7 +73,8 @@ export default function AdminPage() {
 
   async function handleLogout() {
     await authLogout();
-    setIsAdmin(false);
+    setIsLoggedIn(false);
+    setUserRole(null);
   }
 
   async function addSlot(timeStr, durationMin = 120) {
@@ -86,36 +104,36 @@ export default function AdminPage() {
     }
   }
 
+  // bulk/mjesečno dodavanje — poziva se iz AdminBulkAdd (vidi render ispod)
   async function bulkAdd({ dates, time, duration }) {
-  const created = [];
-  for (const d of dates) {
-    try {
-      const c = await createSlot({ date: d, time, duration });
-      created.push(c);
-    } catch (e) {
-      // slot već postoji ili nije moguće kreirati – preskoči
-      // console.warn('skip', d, e);
+    const created = [];
+    for (const d of dates) {
+      try {
+        const c = await createSlot({ date: d, time, duration });
+        created.push(c);
+      } catch (_) {
+        // slot postoji ili greška – preskoči
+      }
     }
+    if (created.length) {
+      setSlots((prev) =>
+        [...prev, ...created].sort((a, b) => {
+          if (a.date !== b.date) return a.date.localeCompare(b.date);
+          return a.time.localeCompare(b.time);
+        })
+      );
+    }
+    alert(`Fertig. Angelegt: ${created.length} Termin(e).`);
   }
-  if (created.length) {
-    setSlots((prev) =>
-      [...prev, ...created].sort((a, b) => {
-        if (a.date !== b.date) return a.date.localeCompare(b.date);
-        return a.time.localeCompare(b.time);
-      })
-    );
-  }
-  alert(`Fertig. Angelegt: ${created.length} Termin(e).`);
-}
 
   function clearDay() {
     if (!window.confirm("Alle freien Slots für diesen Tag löschen?")) return;
-    // ako želiš stvarno brisati sve slobodne slotove za dan,
-    // to se radi backend rutom — ovdje samo re-fetch:
+    // re-fetch (ako želiš pravo brisanje svih free slotova za dan, napravi BE rutu)
     listSlots().then(setSlots);
   }
 
-  if (!isAdmin) {
+  // ✅ login gate sada je “ulogovan”, ne “admin”
+  if (!isLoggedIn) {
     return (
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 flex items-center justify-between">
@@ -135,7 +153,9 @@ export default function AdminPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Admin</h1>
+        <h1 className="text-2xl font-bold">
+          {userRole === "admin" ? "Admin" : "Operater"}
+        </h1>
         <div className="flex gap-2">
           <Link
             to="/kalendar"
@@ -176,14 +196,16 @@ export default function AdminPage() {
             </button>
           </div>
 
+          {/* pojedinačno dodavanje – vide i admin i user */}
           <AdminQuickAdd onAdd={(t, d) => addSlot(t, d)} />
-            <AdminBulkAdd
-             selectedDate={selectedDate}
-            onSubmit={bulkAdd}
-            />
+
+          {/* ✅ mjesečno/mass dodavanje – vidi SAMO admin */}
+          {userRole === "admin" && (
+            <AdminBulkAdd selectedDate={selectedDate} onSubmit={bulkAdd} />
+          )}
 
           {daySlots.length === 0 ? (
-            <p className="text-slate-500 mt-2">Keine Termine an diesem Tag.</p>
+            <p className="mt-2 text-slate-500">Keine Termine an diesem Tag.</p>
           ) : (
             <ul className="mt-3 space-y-2">
               {daySlots.map((s) => (
@@ -222,7 +244,7 @@ export default function AdminPage() {
       </div>
 
       <div className="mt-6">
-        {/* AdminDashboard neka i dalje upravlja rezervacijama (lista, brisanje s razlogom, mailovi, filteri…) */}
+        {/* lista rezervacija, filtri, “Fertig”, brisanje s razlogom, CSV… */}
         <AdminDashboard onLogout={handleLogout} />
       </div>
     </div>
