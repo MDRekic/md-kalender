@@ -340,6 +340,45 @@ app.get('/api/admin/bookings', ensurePrivileged, async (req, res) => {
   }
 });
 
+
+function rangeWhere(from, to, col = 's.date') {
+  const out = { sql: '', params: [] };
+  if (from && to) {
+    out.sql = `WHERE ${col} BETWEEN ? AND ?`;
+    out.params = [from, to];
+  } else if (from) {
+    out.sql = `WHERE ${col} >= ?`;
+    out.params = [from];
+  } else if (to) {
+    out.sql = `WHERE ${col} <= ?`;
+    out.params = [to];
+  }
+  return out;
+}
+
+app.get('/api/admin/completed', ensureAdmin, async (req, res) => {
+  try {
+    const { from, to } = req.query || {};
+    const r = rangeWhere(from, to);              // filtriramo po datumu slota (s.date)
+    const rows = await all(
+      `SELECT b.id, s.date, s.time, s.duration,
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
+              b.completed_by, b.completed_at
+         FROM bookings b
+         JOIN slots s ON s.id = b.slot_id
+         ${r.sql ? r.sql + ' AND ' : 'WHERE '} s.status='booked' AND b.completed_at IS NOT NULL
+       ORDER BY s.date, s.time`,
+      r.params
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'completed_list_failed' });
+  }
+});
+
+
+
 /* --------------------- COMPLETE (Fertig) --------------------------- */
 // admin i operater
 app.post('/api/admin/bookings/:id/complete', ensurePrivileged, async (req, res) => {
@@ -429,22 +468,21 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
 });
 
 // LISTA STORNA (admin i user), filter po datumu slota
-app.get('/api/admin/cancellations', ensureStaff, async (req, res) => {
+app.get('/api/admin/cancellations', ensureAdmin, async (req, res) => {
   try {
-    const { from, to } = req.query;
-    const params = [];
-    let where = [];
-    if (from) { where.push('slot_date >= ?'); params.push(from); }
-    if (to)   { where.push('slot_date <= ?'); params.push(to); }
-    const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
-
+    const { from, to } = req.query || {};
+    // ovdje filtriramo po *vremenu storniranja* – ima više smisla za izvještaj
+    const r = rangeWhere(from, to, 'b.cancelled_at');
     const rows = await all(
-      `SELECT id, booking_id, slot_date, slot_time, slot_duration,
-              full_name, email, phone, address, plz, city, note,
-              reason, canceled_by, canceled_by_id, canceled_at
-         FROM canceled_bookings
-         ${sqlWhere}
-         ORDER BY slot_date, slot_time`, params);
+      `SELECT b.id, s.date, s.time, s.duration,
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
+              b.cancel_reason, b.cancelled_by, b.cancelled_at
+         FROM bookings b
+         JOIN slots s ON s.id = b.slot_id
+         ${r.sql ? r.sql + ' AND ' : 'WHERE '} b.cancelled_at IS NOT NULL
+       ORDER BY b.cancelled_at DESC`,
+      r.params
+    );
     res.json(rows);
   } catch (e) {
     console.error(e);
