@@ -1,356 +1,301 @@
+// src/components/AdminDashboard.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   adminListBookings,
+  adminListCompleted,
+  adminListCancellations,
   adminDeleteBooking,
   adminCompleteBooking,
-  printUrl,
 } from "../lib/api";
+import { printUrl } from "../lib/api";
 
-// pomoćno: lijepo formatiranje
-function fmtPhone(s) {
-  return s || "";
-}
-function fmtAddr(b) {
-  const a = [b.address, [b.plz, b.city].filter(Boolean).join(" ")].filter(Boolean);
-  return a.join(", ");
-}
-function ymdToDe(s) {
-  // "2025-10-08" -> "08.10.2025"
-  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return s || "";
-  const [y, m, d] = s.split("-");
-  return `${d}.${m}.${y}`;
-}
-function deToYmd(s) {
-  // prihvati "tt.mm.jjjj" ili "yyyy-mm-dd"
-  if (!s) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  return s;
+// helper za YYYY-MM-DD
+function ymd(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
 }
 
-const [canceled, setCanceled] = useState([]);
+export default function AdminDashboard({ onLogout }) {
+  // filteri
+  const [from, setFrom] = useState(() => ymd(new Date(new Date().setDate(new Date().getDate() - 30))));
+  const [to, setTo] = useState(() => ymd());
 
-async function reloadLists() {
-  // ...već imaš fetch za open + completed
-  const [openL, doneL, cancL] = await Promise.all([
-    adminListBookings({ status: 'open', from, to }),      // primjer, zavisi od tvoje implementacije
-    adminListCompleted({ from, to }),                      // ako imaš posebnu rutu
-    adminListCancellations({ from, to })
-  ]);
-  setOpen(openL);
-  setCompleted(doneL);
-  setCanceled(cancL);
-}
+  // liste
+  const [openList, setOpenList] = useState([]);
+  const [completedList, setCompletedList] = useState([]);
+  const [canceledList, setCanceledList] = useState([]);
 
-
-export default function AdminDashboard() {
-  const [fromDe, setFromDe] = useState(""); // prikaz u inputu (može ostati prazan)
-  const [toDe, setToDe] = useState("");
-
-  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
 
-  async function fetchBookings({ from, to } = {}) {
+  const periodLabel = useMemo(() => {
+    return `${from || "—"}  —  ${to || "—"}`;
+  }, [from, to]);
+
+  async function reloadLists() {
     setLoading(true);
+    setErr("");
     try {
-      const data = await adminListBookings({
-        from: from || undefined,
-        to: to || undefined,
-      });
-      setRows(data || []);
+      const [openL, doneL, cancL] = await Promise.all([
+        adminListBookings({ from, to }),         // otvorene / aktivne
+        adminListCompleted({ from, to }),        // završene (Fertig)
+        adminListCancellations({ from, to }),    // stornirane
+      ]);
+      setOpenList(openL || []);
+      setCompletedList(doneL || []);
+      setCanceledList(cancL || []);
     } catch (e) {
       console.error(e);
-      alert("Laden fehlgeschlagen.");
+      setErr("Fehler beim Laden der Listen.");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    fetchBookings();
+    reloadLists();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function resetFilters() {
-    setFromDe("");
-    setToDe("");
-    fetchBookings();
-  }
-
-  async function onFilter() {
-    const from = deToYmd(fromDe);
-    const to = deToYmd(toDe);
-    await fetchBookings({ from: from || undefined, to: to || undefined });
-  }
-
-  function csvExport() {
-    window.open("/api/bookings.csv", "_blank");
-  }
-
-  async function handleDelete(b) {
-    const reason = prompt("Bitte Stornogrund eingeben (Pflichtfeld):");
-    if (reason == null) return; // Cancel
-    if (!reason.trim()) return alert("Stornogrund ist erforderlich.");
+  async function handleDelete(row) {
+    const reason = window.prompt("Bitte Stornogrund eingeben (Pflichtfeld):");
+    if (reason == null) return; // odustao
+    if (!reason.trim()) {
+      alert("Stornogrund ist erforderlich.");
+      return;
+    }
     try {
-      await adminDeleteBooking(b.id, reason);
-      await fetchBookings({
-        from: deToYmd(fromDe) || undefined,
-        to: deToYmd(toDe) || undefined,
-      });
+      await adminDeleteBooking(row.id, reason.trim());
+      await reloadLists();
     } catch (e) {
       console.error(e);
-      alert("Löschen fehlgeschlagen.");
+      alert("Löschen (Storno) fehlgeschlagen.");
     }
   }
 
-  async function handleComplete(b) {
+  async function handleComplete(row) {
+    if (!window.confirm("Diesen Auftrag als erledigt markieren?")) return;
     try {
-      await adminCompleteBooking(b.id);
-      await fetchBookings({
-        from: deToYmd(fromDe) || undefined,
-        to: deToYmd(toDe) || undefined,
-      });
+      await adminCompleteBooking(row.id);
+      await reloadLists();
     } catch (e) {
       console.error(e);
-      if (String(e?.message || "").includes("unauthorized")) {
-        alert("Fertig markieren fehlgeschlagen (Session?).");
-      } else {
-        alert("Fertig markieren fehlgeschlagen.");
-      }
+      alert("Als erledigt markieren fehlgeschlagen.");
     }
   }
 
-  const openRows = useMemo(
-    () => rows.filter((r) => !r.completed_at),
-    [rows]
-  );
-  const doneRows = useMemo(
-    () => rows.filter((r) => !!r.completed_at),
-    [rows]
-  );
+  function handlePrint(row) {
+    window.open(printUrl(row.id), "_blank", "noopener,noreferrer");
+  }
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Admin – Reservierungen</h2>
-        <div className="flex items-end gap-2">
+      <div className="mb-3 flex flex-wrap items-end gap-3 justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Admin – Reservierungen</h2>
+          <div className="text-xs text-slate-500">Zeitraum: {periodLabel}</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
           <div>
-            <label className="block text-xs text-slate-600">Von (YYYY-MM-DD)</label>
+            <label className="block text-xs text-slate-600">Von</label>
             <input
-              className="w-36 rounded-lg border border-slate-300 px-2 py-1.5"
-              placeholder="tt.mm.jjjj"
-              value={fromDe}
-              onChange={(e) => setFromDe(e.target.value)}
+              type="date"
+              className="rounded-lg border border-slate-300 px-2 py-1.5"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
             />
           </div>
           <div>
-            <label className="block text-xs text-slate-600">Bis (YYYY-MM-DD)</label>
+            <label className="block text-xs text-slate-600">Bis</label>
             <input
-              className="w-36 rounded-lg border border-slate-300 px-2 py-1.5"
-              placeholder="tt.mm.jjjj"
-              value={toDe}
-              onChange={(e) => setToDe(e.target.value)}
+              type="date"
+              className="rounded-lg border border-slate-300 px-2 py-1.5"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
             />
           </div>
           <button
-            onClick={onFilter}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
+            onClick={reloadLists}
+            className="self-end rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700"
           >
             Filtern
-          </button>
-          <button
-            onClick={resetFilters}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-          >
-            Reset
-          </button>
-          <button
-            onClick={csvExport}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-          >
-            CSV exportieren
           </button>
         </div>
       </div>
 
-      {/* Otvorene rezervacije */}
-      <h3 className="mb-2 mt-4 font-medium">Offene Reservierungen</h3>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="text-left text-slate-600">
-              <th className="p-2">Datum</th>
-              <th className="p-2">Zeit</th>
-              <th className="p-2">Dauer</th>
-              <th className="p-2">Kunde</th>
-              <th className="p-2">Kontakt</th>
-              <th className="p-2">Adresse</th>
-              <th className="p-2">Notiz</th>
-              <th className="p-2">Aktionen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
-              <tr>
-                <td className="p-2" colSpan={8}>
-                  Lädt…
-                </td>
+      {err && <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</div>}
+      {loading && <div className="mb-3 text-sm text-slate-500">Lade …</div>}
+
+      {/* Otvorene / aktivne rezervacije */}
+      <section className="mb-8">
+        <h3 className="mb-2 text-lg font-semibold">Offene Aufträge</h3>
+        <div className="overflow-auto rounded-2xl border border-slate-200">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 text-slate-600">
+                <th className="px-3 py-2 text-left">Datum</th>
+                <th className="px-3 py-2 text-left">Zeit</th>
+                <th className="px-3 py-2 text-left">Kunde</th>
+                <th className="px-3 py-2 text-left">Kontakt</th>
+                <th className="px-3 py-2 text-left">Adresse</th>
+                <th className="px-3 py-2 text-left">Notiz</th>
+                <th className="px-3 py-2 text-left">Aktionen</th>
               </tr>
-            )}
-            {!loading && openRows.length === 0 && (
-              <tr>
-                <td className="p-2 text-slate-500" colSpan={8}>
-                  Keine offenen Reservierungen.
-                </td>
-              </tr>
-            )}
-            {!loading &&
-              openRows.map((r) => (
-                <tr key={r.id} className="border-t">
-                  <td className="p-2">{r.date}</td>
-                  <td className="p-2">{r.time}</td>
-                  <td className="p-2">{r.duration} Min.</td>
-                  <td className="p-2">{r.full_name}</td>
-                  <td className="p-2">
-                    <div>{r.email}</div>
-                    <div className="text-slate-500">{fmtPhone(r.phone)}</div>
-                  </td>
-                  <td className="p-2">{fmtAddr(r)}</td>
-                  <td className="p-2 truncate max-w-[240px]">{r.note || "—"}</td>
-                  <td className="p-2">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => window.open(printUrl(r.id), "_blank")}
-                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-                      >
-                        Drucken
-                      </button>
-                      <button
-                        onClick={() => handleComplete(r)}
-                        className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50"
-                      >
-                        Fertig
-                      </button>
-                      <button
-                        onClick={() => handleDelete(r)}
-                        className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-50"
-                      >
-                        Löschen
-                      </button>
-                    </div>
+            </thead>
+            <tbody>
+              {openList.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-4 text-slate-500">
+                    Keine offenen Aufträge im Zeitraum.
                   </td>
                 </tr>
-              ))}
-          </tbody>
-        </table>
-      </div>
+              ) : (
+                openList.map((row) => (
+                  <tr key={row.id} className="border-t">
+                    <td className="px-3 py-2 whitespace-nowrap">{row.date}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {row.time} · {row.duration} Min.
+                    </td>
+                    <td className="px-3 py-2">{row.full_name}</td>
+                    <td className="px-3 py-2">
+                      <div>{row.email}</div>
+                      {row.phone && <div className="text-slate-500">{row.phone}</div>}
+                    </td>
+                    <td className="px-3 py-2">
+                      {[row.address, row.plz, row.city].filter(Boolean).join(", ")}
+                    </td>
+                    <td className="px-3 py-2">{row.note || "—"}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => handlePrint(row)}
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
+                        >
+                          Drucken
+                        </button>
+                        <button
+                          onClick={() => handleComplete(row)}
+                          className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50"
+                        >
+                          Fertig
+                        </button>
+                        <button
+                          onClick={() => handleDelete(row)}
+                          className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-50"
+                        >
+                          Löschen
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
-      {/* Završeni */}
-      <h3 className="mb-2 mt-8 font-medium">Erledigte Aufträge</h3>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="text-left text-slate-600">
-              <th className="p-2">Datum</th>
-              <th className="p-2">Zeit</th>
-              <th className="p-2">Dauer</th>
-              <th className="p-2">Kunde</th>
-              <th className="p-2">Kontakt</th>
-              <th className="p-2">Adresse</th>
-              <th className="p-2">Erledigt von</th>
-              <th className="p-2">Erledigt am</th>
-              <th className="p-2">Aktionen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
-              <tr>
-                <td className="p-2" colSpan={9}>
-                  Lädt…
-                </td>
+      {/* Erledigte Aufträge */}
+      <section className="mb-8">
+        <h3 className="mb-2 text-lg font-semibold">Erledigte Aufträge</h3>
+        <div className="overflow-auto rounded-2xl border border-slate-200">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 text-slate-600">
+                <th className="px-3 py-2 text-left">Datum</th>
+                <th className="px-3 py-2 text-left">Zeit</th>
+                <th className="px-3 py-2 text-left">Kunde</th>
+                <th className="px-3 py-2 text-left">Kontakt</th>
+                <th className="px-3 py-2 text-left">Adresse</th>
+                <th className="px-3 py-2 text-left">Notiz</th>
+                <th className="px-3 py-2 text-left">Fertig von</th>
+                <th className="px-3 py-2 text-left">Fertig am</th>
               </tr>
-            )}
-            {!loading && doneRows.length === 0 && (
-              <tr>
-                <td className="p-2 text-slate-500" colSpan={9}>
-                  Keine erledigten Aufträge.
-                </td>
-              </tr>
-            )}
-            {!loading &&
-              doneRows.map((r) => (
-                <tr key={r.id} className="border-t">
-                  <td className="p-2">{r.date}</td>
-                  <td className="p-2">{r.time}</td>
-                  <td className="p-2">{r.duration} Min.</td>
-                  <td className="p-2">{r.full_name}</td>
-                  <td className="p-2">
-                    <div>{r.email}</div>
-                    <div className="text-slate-500">{fmtPhone(r.phone)}</div>
-                  </td>
-                  <td className="p-2">{fmtAddr(r)}</td>
-                  <td className="p-2">{r.completed_by || "—"}</td>
-                  <td className="p-2">
-                    {r.completed_at ? ymdToDe(r.completed_at.slice(0, 10)) : "—"}
-                    {r.completed_at && r.completed_at.length > 10
-                      ? " " + r.completed_at.slice(11, 16)
-                      : ""}
-                  </td>
-                  <td className="p-2">
-                    <button
-                      onClick={() => window.open(printUrl(r.id), "_blank")}
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-                    >
-                      Drucken
-                    </button>
+            </thead>
+            <tbody>
+              {completedList.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-3 py-4 text-slate-500">
+                    Keine erledigten Aufträge im Zeitraum.
                   </td>
                 </tr>
-              ))}
-          </tbody>
-        </table>
+              ) : (
+                completedList.map((r) => (
+                  <tr key={r.id} className="border-t">
+                    <td className="px-3 py-2 whitespace-nowrap">{r.date}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {r.time} · {r.duration} Min.
+                    </td>
+                    <td className="px-3 py-2">{r.full_name}</td>
+                    <td className="px-3 py-2">
+                      <div>{r.email}</div>
+                      {r.phone && <div className="text-slate-500">{r.phone}</div>}
+                    </td>
+                    <td className="px-3 py-2">
+                      {[r.address, r.plz, r.city].filter(Boolean).join(", ")}
+                    </td>
+                    <td className="px-3 py-2">{r.note || "—"}</td>
+                    <td className="px-3 py-2">{r.completed_by || "—"}</td>
+                    <td className="px-3 py-2">{r.completed_at || "—"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
-        <div className="mt-8">
-  <h3 className="mb-2 text-lg font-semibold">Storno Aufträge</h3>
-
-  <div className="overflow-auto rounded-2xl border border-slate-200 bg-white">
-    <table className="min-w-full text-sm">
-      <thead>
-        <tr className="bg-slate-50 text-slate-600">
-          <th className="px-3 py-2 text-left">Datum</th>
-          <th className="px-3 py-2 text-left">Zeit</th>
-          <th className="px-3 py-2 text-left">Kunde</th>
-          <th className="px-3 py-2 text-left">Kontakt</th>
-          <th className="px-3 py-2 text-left">Adresse</th>
-          <th className="px-3 py-2 text-left">Grund</th>
-          <th className="px-3 py-2 text-left">Storniert von</th>
-          <th className="px-3 py-2 text-left">Storniert am</th>
-        </tr>
-      </thead>
-      <tbody>
-        {canceled.length === 0 ? (
-          <tr><td colSpan={8} className="px-3 py-4 text-slate-500">Keine stornierten Aufträge im Zeitraum.</td></tr>
-        ) : canceled.map((r) => (
-          <tr key={r.id} className="border-t">
-            <td className="px-3 py-2 whitespace-nowrap">{r.slot_date}</td>
-            <td className="px-3 py-2 whitespace-nowrap">{r.slot_time} · {r.slot_duration} Min.</td>
-            <td className="px-3 py-2">{r.full_name}</td>
-            <td className="px-3 py-2">
-              <div>{r.email}</div>
-              {r.phone && <div className="text-slate-500">{r.phone}</div>}
-            </td>
-            <td className="px-3 py-2">{[r.address, r.plz, r.city].filter(Boolean).join(', ')}</td>
-            <td className="px-3 py-2">{r.reason}</td>
-            <td className="px-3 py-2">{r.canceled_by || '—'}</td>
-            <td className="px-3 py-2">{r.canceled_at}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-
-      </div>
+      {/* Storno Aufträge */}
+      <section>
+        <h3 className="mb-2 text-lg font-semibold">Storno Aufträge</h3>
+        <div className="overflow-auto rounded-2xl border border-slate-200">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 text-slate-600">
+                <th className="px-3 py-2 text-left">Datum</th>
+                <th className="px-3 py-2 text-left">Zeit</th>
+                <th className="px-3 py-2 text-left">Kunde</th>
+                <th className="px-3 py-2 text-left">Kontakt</th>
+                <th className="px-3 py-2 text-left">Adresse</th>
+                <th className="px-3 py-2 text-left">Grund</th>
+                <th className="px-3 py-2 text-left">Storniert von</th>
+                <th className="px-3 py-2 text-left">Storniert am</th>
+              </tr>
+            </thead>
+            <tbody>
+              {canceledList.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-3 py-4 text-slate-500">
+                    Keine stornierten Aufträge im Zeitraum.
+                  </td>
+                </tr>
+              ) : (
+                canceledList.map((r) => (
+                  <tr key={r.id} className="border-t">
+                    <td className="px-3 py-2 whitespace-nowrap">{r.slot_date}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {r.slot_time} · {r.slot_duration} Min.
+                    </td>
+                    <td className="px-3 py-2">{r.full_name}</td>
+                    <td className="px-3 py-2">
+                      <div>{r.email}</div>
+                      {r.phone && <div className="text-slate-500">{r.phone}</div>}
+                    </td>
+                    <td className="px-3 py-2">
+                      {[r.address, r.plz, r.city].filter(Boolean).join(", ")}
+                    </td>
+                    <td className="px-3 py-2">{r.reason}</td>
+                    <td className="px-3 py-2">{r.canceled_by || "—"}</td>
+                    <td className="px-3 py-2">{r.canceled_at || "—"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }
