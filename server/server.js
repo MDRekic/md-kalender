@@ -276,9 +276,12 @@ app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
 // public – kreiranje
 app.post('/api/bookings', async (req, res) => {
   try {
-    const {
-      slotId, fullName, email, phone, address, plz, city, units, note
-    } = req.body || {};
+    const { slotId, fullName, email, phone, address, plz, city, note, einheiten } = req.body || {};
+if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
+  return res.status(400).json({ error: 'missing_fields' });
+}
+
+const einheitenVal = Number(einheiten) || 0;
 
     // validacija
     if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
@@ -292,7 +295,7 @@ app.post('/api/bookings', async (req, res) => {
 
     // 👇 VAŽNO: redoslijed kolona i vrijednosti!
     const { id: bookingId } = await run(
-      'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, units, note) VALUES (?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note, einheiten) VALUES (?,?,?,?,?,?,?,?,?)',
       [slotId, fullName, email, phone, address, plz, city, unitsNum, note || null]
     );
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
