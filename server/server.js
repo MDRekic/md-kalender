@@ -10,6 +10,7 @@ import bcrypt from 'bcryptjs';
 import { all, get, migrate, run } from './db.js';
 import { makeTransport, bookingEmails, sendMail } from './email.js';
 import { issueToken, verifyToken } from './auth.js';
+import { bookingEmails, sendMail } from './email.js';
 
 dotenv.config();
 
@@ -236,15 +237,27 @@ setImmediate(async () => {
   try {
     const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
 
+    // napravi subject + HTML za kupca i admina
     const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
       brand: process.env.BRAND_NAME || 'MyDienst',
       toAdmin: process.env.ADMIN_EMAIL,
       toInvitee: email,
-      slot,
-      booking: { full_name: fullName, email, phone, address, plz, city, note, einheiten },
+      slot, // { date, time, duration, ... }
+      booking: {
+        full_name: fullName,
+        email,
+        phone,
+        address,
+        plz,
+        city,
+        note,
+        // ako u bazi/req.body imaš "einheiten", proslijedi ga:
+        einheiten: req.body?.einheiten ?? null,
+      },
       replyTo,
     });
 
+    // kupac
     await sendMail({
       to: email,
       subject,
@@ -252,12 +265,15 @@ setImmediate(async () => {
       replyTo,
     });
 
+    // admin
     await sendMail({
       to: process.env.ADMIN_EMAIL,
       subject: `Neue Buchung – ${subject}`,
       html: htmlAdmin,
       replyTo,
     });
+
+    console.log('[mail after booking] OK -> invitee+admin sent');
   } catch (err) {
     console.error('[mail after booking] FAILED:', err);
   }
