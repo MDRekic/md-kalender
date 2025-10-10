@@ -276,78 +276,84 @@ app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
 // public – kreiranje
 app.post('/api/bookings', async (req, res) => {
   try {
-    const { slotId, fullName, email, phone, address, plz, city, note, einheiten } = req.body || {};
-if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
-  return res.status(400).json({ error: 'missing_fields' });
-}
+    const {
+      slotId,
+      fullName,
+      email,
+      phone,
+      address,
+      plz,
+      city,
+      note,
+      einheiten
+    } = req.body || {};
 
-const einheitenVal = Number(einheiten) || 0;
-
-    // validacija
     if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
       return res.status(400).json({ error: 'missing_fields' });
     }
-    const unitsNum = Number.isFinite(+units) ? Math.max(0, parseInt(units, 10)) : 0;
 
     const slot = await get('SELECT * FROM slots WHERE id=?', [slotId]);
     if (!slot) return res.status(404).json({ error: 'slot_not_found' });
     if (slot.status === 'booked') return res.status(409).json({ error: 'already_booked' });
 
-    // 👇 VAŽNO: redoslijed kolona i vrijednosti!
+    const einheitenVal = Number(einheiten) || 0;
+
+    // ✅ INSERT booking sa einheiten
     const { id: bookingId } = await run(
-      'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note, einheiten) VALUES (?,?,?,?,?,?,?,?,?)',
-      [slotId, fullName, email, phone, address, plz, city, unitsNum, note || null]
+      `INSERT INTO bookings 
+        (slot_id, full_name, email, phone, address, plz, city, note, einheiten)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [slotId, fullName, email, phone, address, plz, city, note || null, einheitenVal]
     );
+
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
 
-
-    // ✉️ pošalji mailove asinkrono – koristimo sendMail koji već radi
+    // 📧 Email obavijest
     setImmediate(async () => {
       try {
-        const brand   = process.env.BRAND_NAME || 'MyDienst';
-        const when    = `${slot.date} ${slot.time}`;
-        const replyTo = process.env.REPLY_TO_EMAIL || process.env.SMTP_USER || 'termin@mydienst.de';
+        const transport = makeTransport();
+        const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
+        const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
+          brand: process.env.BRAND_NAME || 'MyDienst',
+          toAdmin: process.env.ADMIN_EMAIL,
+          toInvitee: email,
+          slot,
+          booking: {
+            full_name: fullName,
+            email,
+            phone,
+            address,
+            plz,
+            city,
+            note,
+            einheiten: einheitenVal
+          },
+          replyTo,
+        });
 
-        const inviteeSubject = `Bestätigung – ${when}`;
-        const inviteeHtml = `
-          <p>Guten Tag ${escapeHtml(fullName)},</p>
-          <p>vielen Dank für Ihre Buchung.</p>
-          <ul>
-            <li><b>Datum/Zeit:</b> ${slot.date} ${slot.time}</li>
-            <li><b>Dauer:</b> ${slot.duration} Min.</li>
-            <li><b>Adresse:</b> ${escapeHtml(address)}, ${escapeHtml(plz)} ${escapeHtml(city)}</li>
-            <li><b>Telefon:</b> ${escapeHtml(phone)}</li>
-            <li><b>Einheiten (Klingeln):</b> ${Number(units)}</li>
-            ${note ? `<li><b>Notiz:</b> ${escapeHtml(note)}</li>` : ``}
-          </ul>
-          <p>Mit freundlichen Grüßen<br/>${brand}</p>
-        `;
+        await transport.sendMail({
+          from: process.env.SMTP_USER,
+          to: email,
+          subject,
+          html: htmlInvitee,
+          replyTo,
+        });
 
-        const adminSubject = `Neue Buchung – ${when}`;
-        const adminHtml = `
-          <p>Neue Buchung:</p>
-          <ul>
-            <li><b>Datum/Zeit:</b> ${slot.date} ${slot.time} · ${slot.duration} Min.</li>
-            <li><b>Kunde:</b> ${escapeHtml(fullName)} (${escapeHtml(email)})</li>
-            <li><b>Telefon:</b> ${escapeHtml(phone)}</li>
-            <li><b>Adresse:</b> ${escapeHtml(address)}, ${escapeHtml(plz)} ${escapeHtml(city)}</li>
-            <li><b>Einheiten:</b> ${Number(units)}</li>
-            ${note ? `<li><b>Notiz:</b> ${escapeHtml(note)}</li>` : ``}
-          </ul>
-        `;
-
-        await sendMail({ to: email, subject: inviteeSubject, html: inviteeHtml, replyTo });
-        if (process.env.ADMIN_EMAIL) {
-          await sendMail({ to: process.env.ADMIN_EMAIL, subject: adminSubject, html: adminHtml, replyTo });
-        }
+        await transport.sendMail({
+          from: process.env.SMTP_USER,
+          to: process.env.ADMIN_EMAIL,
+          subject: `Neue Buchung – ${subject}`,
+          html: htmlAdmin,
+          replyTo,
+        });
       } catch (err) {
-        console.error('[mail after booking] FAILED:', err);
+        console.error('[mail after booking]', err);
       }
     });
 
     res.json({ bookingId, slotId });
   } catch (e) {
-    console.error(e);
+    console.error('[booking_failed]', e);
     res.status(500).json({ error: 'booking_failed' });
   }
 });
