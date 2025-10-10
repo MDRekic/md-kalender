@@ -29,7 +29,7 @@ export default function LoginPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Adminxxxxxxxxx</h1>
+        <h1 className="text-2xl font-bold">Admin</h1>
         <Link to="/kalendar" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
           ← Nazad na kalendar
         </Link>
