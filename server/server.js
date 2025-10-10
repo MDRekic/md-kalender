@@ -28,6 +28,30 @@ const escapeHtml = (s = '') =>
 /* ---------------------------- migrations --------------------------- */
 migrate();
 
+// add units column to canceled_bookings if missing
+await run(`CREATE TABLE IF NOT EXISTS canceled_bookings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  booking_id INTEGER NOT NULL,
+  slot_date TEXT NOT NULL,
+  slot_time TEXT NOT NULL,
+  slot_duration INTEGER NOT NULL,
+  full_name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  phone TEXT,
+  address TEXT,
+  plz TEXT,
+  city TEXT,
+  units INTEGER NOT NULL DEFAULT 0,
+  note TEXT,
+  reason TEXT NOT NULL,
+  canceled_by TEXT,
+  canceled_by_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
+
+
+
+
 /* -------------------------- seed admin user ------------------------ */
 async function ensureAdminUser() {
   const username = process.env.ADMIN_USER || 'admin';
@@ -253,28 +277,26 @@ app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
 app.post('/api/bookings', async (req, res) => {
   try {
     const {
-      slotId, fullName, email, phone,
-      address, plz, city, note,
-      units   // novo polje – broj zvona/“Einheiten”
+      slotId, fullName, email, phone, address, plz, city, units, note
     } = req.body || {};
 
-    // obavezna polja
-    if (!slotId || !fullName || !email || !phone || !address || !plz || !city || typeof units === 'undefined') {
+    // validacija
+    if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
       return res.status(400).json({ error: 'missing_fields' });
     }
+    const unitsNum = Number.isFinite(+units) ? Math.max(0, parseInt(units, 10)) : 0;
 
-    // slot mora postojati i biti slobodan
     const slot = await get('SELECT * FROM slots WHERE id=?', [slotId]);
     if (!slot) return res.status(404).json({ error: 'slot_not_found' });
     if (slot.status === 'booked') return res.status(409).json({ error: 'already_booked' });
 
-    // spremi rezervaciju (+ novo polje units)
+    // 👇 VAŽNO: redoslijed kolona i vrijednosti!
     const { id: bookingId } = await run(
-      'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note, units) VALUES (?,?,?,?,?,?,?,?,?)',
-      [slotId, fullName, email, phone, address, plz, city, note || null, Number(units)]
+      'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, units, note) VALUES (?,?,?,?,?,?,?,?,?)',
+      [slotId, fullName, email, phone, address, plz, city, unitsNum, note || null]
     );
-
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
+
 
     // ✉️ pošalji mailove asinkrono – koristimo sendMail koji već radi
     setImmediate(async () => {
@@ -343,15 +365,16 @@ app.get('/api/admin/bookings', ensurePrivileged, async (req, res) => {
     }
 
     const rows = await all(
-      `SELECT b.id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.units, b.note,
-              b.created_at, b.completed_by, b.completed_at
-         FROM bookings b
-         JOIN slots s ON s.id = b.slot_id
-        ${where}
-        ORDER BY s.date, s.time`,
-      params
-    );
+  `SELECT b.id, s.date, s.time, s.duration,
+          b.full_name, b.email, b.phone, b.address, b.plz, b.city,
+          b.units, b.note,
+          b.created_at, b.completed_by, b.completed_at
+     FROM bookings b
+     JOIN slots s ON s.id = b.slot_id
+    ${where}
+    ORDER BY s.date, s.time`,
+  params
+);
     res.json(rows);
   } catch (e) {
     console.error(e);
@@ -380,15 +403,16 @@ app.get('/api/admin/completed', ensurePrivileged, async (req, res) => {
     const { from, to } = req.query || {};
     const r = rangeWhere(from, to);              // filtriramo po datumu slota (s.date)
     const rows = await all(
-      `SELECT b.id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.units, b.note,
-              b.completed_by, b.completed_at
-         FROM bookings b
-         JOIN slots s ON s.id = b.slot_id
-         ${r.sql ? r.sql + ' AND ' : 'WHERE '} s.status='booked' AND b.completed_at IS NOT NULL
-       ORDER BY s.date, s.time`,
-      r.params
-    );
+  `SELECT b.id, s.date, s.time, s.duration,
+          b.full_name, b.email, b.phone, b.address, b.plz, b.city,
+          b.units, b.note,
+          b.completed_by, b.completed_at
+     FROM bookings b
+     JOIN slots s ON s.id = b.slot_id
+     ${r.sql ? r.sql + ' AND ' : 'WHERE '} s.status='booked' AND b.completed_at IS NOT NULL
+   ORDER BY s.date, s.time`,
+  r.params
+);
     res.json(rows);
   } catch (e) {
     console.error(e);
@@ -437,28 +461,30 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
 
     // 2) Upisi u canceled_bookings (audit trag)
      await run(
-    `INSERT INTO canceled_bookings
-      (booking_id, slot_date, slot_time, slot_duration,
-       full_name, email, phone, address, plz, city, note,
-       reason, canceled_by, canceled_by_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      row.id,                    // booking_id
-      row.slot_date,             // slot_date
-      row.slot_time,             // slot_time
-      row.slot_duration,         // slot_duration
-      row.full_name,             // full_name
-      row.email,                 // email
-      row.phone,                 // phone
-      row.address,               // address
-      row.plz,                   // plz
-      row.city,                  // city
-      row.note || null,          // note
-      reason,                    // reason
-      req.user.username,         // canceled_by
-      req.user.uid               // canceled_by_id
-    ]
-  );
+  `INSERT INTO canceled_bookings
+     (booking_id, slot_date, slot_time, slot_duration,
+      full_name, email, phone, address, plz, city, units, note,
+      reason, canceled_by, canceled_by_id)
+   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  [
+    row.id,                // booking_id
+    row.slot_date,         // slot_date
+    row.slot_time,         // slot_time
+    row.slot_duration,     // slot_duration
+    row.full_name,         // full_name
+    row.email,             // email
+    row.phone,             // phone
+    row.address,           // address
+    row.plz,               // plz
+    row.city,              // city
+    row.units || 0,        // 🔹 units
+    row.note || null,      // note
+    reason,                // reason
+    req.user?.username || 'system', // canceled_by
+    req.user?.uid || null  // canceled_by_id
+  ]
+);
+
 
     // 3) Obriši booking + oslobodi slot
     await run(`DELETE FROM bookings WHERE id=?`, [id]);
@@ -506,17 +532,18 @@ app.get('/api/admin/cancellations', ensurePrivileged, async (req, res) => {
     if (from) { where += ' AND x.slot_date >= ?'; params.push(from); }
     if (to)   { where += ' AND x.slot_date <= ?'; params.push(to); }
 
-    const rows = await all(
-      `SELECT x.id, x.booking_id,
-              x.slot_date, x.slot_time, x.slot_duration,
-              x.full_name, x.email, x.phone, x.address, x.plz, x.city, x.note,
-              x.reason, x.canceled_by, x.canceled_by_id,
-              x.created_at AS canceled_at
-         FROM canceled_bookings x
-        WHERE ${where}
-        ORDER BY x.slot_date, x.slot_time`,
-      params
-    );
+const rows = await all(
+  `SELECT x.id, x.booking_id,
+          x.slot_date, x.slot_time, x.slot_duration,
+          x.full_name, x.email, x.phone, x.address, x.plz, x.city,
+          x.units, x.note,
+          x.reason, x.canceled_by, x.canceled_by_id,
+          x.created_at AS canceled_at
+     FROM canceled_bookings x
+    ${where.sql ? where.sql.replace(/s\.date/g, 'x.slot_date') : ''}
+    ORDER BY x.slot_date, x.slot_time`,
+  where.params
+);
     res.json(rows);
   } catch (e) {
     console.error(e);

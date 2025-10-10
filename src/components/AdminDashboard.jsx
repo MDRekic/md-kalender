@@ -140,7 +140,9 @@ export default function AdminDashboard({ onLogout }) {
                 <th className="px-3 py-2 text-left">Kunde</th>
                 <th className="px-3 py-2 text-left">Kontakt</th>
                 <th className="px-3 py-2 text-left">Adresse</th>
-                <th className="px-3 py-2 text-left">Einheiten</th>
+                <td className="px-3 py-2 whitespace-nowrap">
+  {Number.isFinite(+row.units) ? row.units : '—'}
+</td>
                 <th className="px-3 py-2 text-left">Notiz</th>
                 <th className="px-3 py-2 text-left">Aktionen</th>
               </tr>
@@ -210,7 +212,9 @@ export default function AdminDashboard({ onLogout }) {
                 <th className="px-3 py-2 text-left">Kunde</th>
                 <th className="px-3 py-2 text-left">Kontakt</th>
                 <th className="px-3 py-2 text-left">Adresse</th>
-                <th className="px-3 py-2 text-left">Einheiten</th>
+                <td className="px-3 py-2 whitespace-nowrap">
+  {Number.isFinite(+r.units) ? r.units : '—'}
+</td>
                 <th className="px-3 py-2 text-left">Notiz</th>
                 <th className="px-3 py-2 text-left">Fertig von</th>
                 <th className="px-3 py-2 text-left">Fertig am</th>
@@ -261,7 +265,9 @@ export default function AdminDashboard({ onLogout }) {
                 <th className="px-3 py-2 text-left">Kunde</th>
                 <th className="px-3 py-2 text-left">Kontakt</th>
                 <th className="px-3 py-2 text-left">Adresse</th>
-                <th className="px-3 py-2 text-left">Einheiten</th>
+                <td className="px-3 py-2 whitespace-nowrap">
+  {Number.isFinite(+r.units) ? r.units : '—'}
+</td>
                 <th className="px-3 py-2 text-left">Grund</th>
                 <th className="px-3 py-2 text-left">Storniert von</th>
                 <th className="px-3 py-2 text-left">Storniert am</th>
