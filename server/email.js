@@ -53,3 +53,39 @@ Mit freundlichen Grüßen
 ${process.env.BRAND_NAME || "MyDienst GmbH"}`,
   }),
 };
+
+export function bookingEmails({ brand, toAdmin, toInvitee, slot, booking, replyTo }) {
+  const when = `${slot.date} ${slot.time}`;
+  const subject = `${brand}: Termin ${when}`;
+
+  const htmlInvitee = `
+    <p>Guten Tag ${booking.full_name},</p>
+    <p>Ihr Termin am <b>${slot.date}</b> um <b>${slot.time}</b> (Dauer ${slot.duration} Min.) ist bestätigt.</p>
+    ${Number.isFinite(+booking.einheiten) ? `<p>Einheiten: <b>${booking.einheiten}</b></p>` : ``}
+    <p>Viele Grüße – ${brand}</p>
+  `;
+
+  const htmlAdmin = `
+    <p>Neue Buchung:</p>
+    <ul>
+      <li><b>Wann:</b> ${slot.date} ${slot.time} (${slot.duration} Min.)</li>
+      <li><b>Kunde:</b> ${booking.full_name} (${booking.email}${booking.phone ? ', ' + booking.phone : ''})</li>
+      <li><b>Adresse:</b> ${booking.address || ''}, ${booking.plz || ''} ${booking.city || ''}</li>
+      ${Number.isFinite(+booking.einheiten) ? `<li><b>Einheiten:</b> ${booking.einheiten}</li>` : ``}
+      ${booking.note ? `<li><b>Notiz:</b> ${booking.note}</li>` : ``}
+    </ul>
+  `;
+
+  return { subject, htmlInvitee, htmlAdmin };
+}
+
+export async function sendMail({ to, subject, html, replyTo }) {
+  const transport = makeTransport(); // tvoj postojeći makeTransport ostaje u ovoj datoteci
+  await transport.sendMail({
+    from: process.env.SMTP_USER,
+    to,
+    subject,
+    html,
+    replyTo,
+  });
+}
