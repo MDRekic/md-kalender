@@ -62,6 +62,9 @@ app.use('/api/bookings', rateLimit({ windowMs: 60_000, max: 100 }));
 
 // guards
 function ensureAdmin(req, res, next) {
+    function ensureStaff(req, res, next) {
+  return ensurePrivileged(req, res, next);
+}
   const token = req.cookies?.admtk;
   const decoded = token && verifyToken(token, process.env.JWT_SECRET || 'secret');
   if (!decoded?.role || decoded.role !== 'admin') return res.status(401).json({ error: 'unauthorized' });
@@ -237,12 +240,11 @@ setImmediate(async () => {
   try {
     const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
 
-    // napravi subject + HTML za kupca i admina
     const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
       brand: process.env.BRAND_NAME || 'MyDienst',
       toAdmin: process.env.ADMIN_EMAIL,
       toInvitee: email,
-      slot, // { date, time, duration, ... }
+      slot, // objekt slota koji si već učitao
       booking: {
         full_name: fullName,
         email,
@@ -251,8 +253,7 @@ setImmediate(async () => {
         plz,
         city,
         note,
-        // ako u bazi/req.body imaš "einheiten", proslijedi ga:
-        einheiten: req.body?.einheiten ?? null,
+        einheiten: req.body?.einheiten ?? null, // ako šalješ broj jedinica
       },
       replyTo,
     });
@@ -273,7 +274,7 @@ setImmediate(async () => {
       replyTo,
     });
 
-    console.log('[mail after booking] OK -> invitee+admin sent');
+    console.log('[mail after booking] OK');
   } catch (err) {
     console.error('[mail after booking] FAILED:', err);
   }
