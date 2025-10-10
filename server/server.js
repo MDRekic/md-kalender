@@ -441,7 +441,9 @@ app.post('/api/admin/bookings/:id/complete', ensurePrivileged, async (req, res) 
 
 /* ---------------- Delete booking (sa razlogom + mail) ------------- */
 // STORNIRAJ (arhiviraj) REZERVACIJU + oslobodi slot + pošalji mailove
-app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
+// STORNIRAJ REZERVACIJU (admin + operater): arhiviraj u canceled_bookings,
+// oslobodi slot i pošalji e-mailove
+app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
   const id = req.params.id;
   const { reason } = req.body || {};
   if (!reason || !reason.trim()) {
@@ -449,9 +451,12 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
   }
 
   try {
-    // 1) Učitaj booking + slot
+    // 1) Učitaj postojeću rezervaciju i slot
     const row = await get(
-      `SELECT b.*, s.date AS slot_date, s.time AS slot_time, s.duration AS slot_duration, s.id AS slot_id
+      `SELECT b.*, s.date  AS slot_date,
+               s.time     AS slot_time,
+               s.duration AS slot_duration,
+               s.id       AS slot_id
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
         WHERE b.id = ?`,
@@ -459,48 +464,45 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
     );
     if (!row) return res.status(404).json({ error: 'not_found' });
 
-    // 2) Upisi u canceled_bookings (audit trag)
-     await run(
-  `INSERT INTO canceled_bookings
-     (booking_id, slot_date, slot_time, slot_duration,
-      full_name, email, phone, address, plz, city, units, note,
-      reason, canceled_by, canceled_by_id)
-   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  [
-    row.id,                // booking_id
-    row.slot_date,         // slot_date
-    row.slot_time,         // slot_time
-    row.slot_duration,     // slot_duration
-    row.full_name,         // full_name
-    row.email,             // email
-    row.phone,             // phone
-    row.address,           // address
-    row.plz,               // plz
-    row.city,              // city
-    row.units || 0,        // 🔹 units
-    row.note || null,      // note
-    reason,                // reason
-    req.user?.username || 'system', // canceled_by
-    req.user?.uid || null  // canceled_by_id
-  ]
-);
+    // 2) Upis u canceled_bookings (AUDIT)
+    await run(
+      `INSERT INTO canceled_bookings
+         (booking_id, slot_date, slot_time, slot_duration,
+          full_name, email, phone, address, plz, city, note,
+          reason, canceled_by, canceled_by_id, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`,
+      [
+        row.id,                 // booking_id
+        row.slot_date,          // slot_date
+        row.slot_time,          // slot_time
+        row.slot_duration,      // slot_duration
+        row.full_name,          // full_name
+        row.email,              // email
+        row.phone,              // phone
+        row.address,            // address
+        row.plz,                // plz
+        row.city,               // city
+        row.note || null,       // note
+        reason.trim(),          // reason
+        req.user?.username || 'system', // canceled_by
+        req.user?.uid || null           // canceled_by_id
+      ]
+    );
 
-
-    // 3) Obriši booking + oslobodi slot
+    // 3) Obriši rezervaciju i oslobodi slot
     await run(`DELETE FROM bookings WHERE id=?`, [id]);
     await run(`UPDATE slots SET status='free' WHERE id=?`, [row.slot_id]);
 
-    // 4) E-mailovi (ostaje kao i prije)
+    // 4) E-mail obavijesti
     const when = `${row.slot_date} ${row.slot_time}`;
     const subject = `Termin storniert – ${when}`;
-    const html = `
+    const htmlInvitee = `
       <p>Guten Tag ${escapeHtml(row.full_name)},</p>
       <p>Ihr Termin am <b>${row.slot_date}</b> um <b>${row.slot_time}</b> (Dauer ${row.slot_duration} Min.) wurde storniert.</p>
       <p><b>Grund:</b> ${escapeHtml(reason)}</p>
       <p>— ${process.env.BRAND_NAME || 'MyDienst'}</p>
     `;
-
-    await sendMail({ to: row.email, subject, html });
+    await sendMail({ to: row.email, subject, html: htmlInvitee });
     await sendMail({
       to: process.env.ADMIN_EMAIL,
       subject: `ADMIN: ${subject}`,
@@ -518,10 +520,11 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
 
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
+    console.error('[storno]', e);
     res.status(500).json({ error: 'server_error' });
   }
 });
+
 
 // LISTA STORNA (admin i user), filter po datumu slota
 // LISTA STORNA (admin & user), filtriranje po datumu slota
