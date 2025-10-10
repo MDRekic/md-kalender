@@ -232,24 +232,36 @@ app.post('/api/bookings', async (req, res) => {
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
 
     // ... (ostatak mailova ostaje identičan)
-    setImmediate(async () => {
-      try {
-        const transport = makeTransport();
-        const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
-        const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
-          brand: process.env.BRAND_NAME || 'MyDienst',
-          toAdmin: process.env.ADMIN_EMAIL,
-          toInvitee: email,
-          slot,
-          booking: { full_name: fullName, email, phone, address, plz, city, note, einheiten },
-          replyTo,
-        });
-        await transport.sendMail({ from: process.env.SMTP_USER, to: email, subject, html: htmlInvitee, replyTo });
-        await transport.sendMail({ from: process.env.SMTP_USER, to: process.env.ADMIN_EMAIL, subject: `Neue Buchung – ${subject}`, html: htmlAdmin, replyTo });
-      } catch (err) {
-        console.error('[mail after booking]', err);
-      }
+setImmediate(async () => {
+  try {
+    const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
+
+    const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
+      brand: process.env.BRAND_NAME || 'MyDienst',
+      toAdmin: process.env.ADMIN_EMAIL,
+      toInvitee: email,
+      slot,
+      booking: { full_name: fullName, email, phone, address, plz, city, note, einheiten },
+      replyTo,
     });
+
+    await sendMail({
+      to: email,
+      subject,
+      html: htmlInvitee,
+      replyTo,
+    });
+
+    await sendMail({
+      to: process.env.ADMIN_EMAIL,
+      subject: `Neue Buchung – ${subject}`,
+      html: htmlAdmin,
+      replyTo,
+    });
+  } catch (err) {
+    console.error('[mail after booking] FAILED:', err);
+  }
+});
 
     res.json({ bookingId, slotId });
   } catch (e) {
@@ -279,14 +291,14 @@ app.get('/api/admin/bookings', ensurePrivileged, async (req, res) => {
   try {
     const { from, to } = req.query || {};
     const params = [];
-    let where = '';
-    if (from) { where += (where ? ' AND ' : ' WHERE ') + 's.date >= ?'; params.push(from); }
-    if (to)   { where += (where ? ' AND ' : ' WHERE ') + 's.date <= ?'; params.push(to); }
+    let where = ' WHERE b.completed_at IS NULL ';   // << KLJUČNO: isključi završene
+    if (from) { where += ' AND s.date >= ?'; params.push(from); }
+    if (to)   { where += ' AND s.date <= ?'; params.push(to); }
 
     const rows = await all(
       `SELECT b.id, s.date, s.time, s.duration,
               b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
-              b.einheiten AS einheiten,                      -- << DODANO
+              b.einheiten AS einheiten,
               b.created_at, b.completed_by, b.completed_at
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
