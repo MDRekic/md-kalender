@@ -446,46 +446,48 @@ app.post('/api/admin/bookings/:id/complete', ensurePrivileged, async (req, res) 
 app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
   const id = req.params.id;
   const { reason } = req.body || {};
-  if (!reason || !reason.trim()) return res.status(400).json({ error: 'reason_required' });
+
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: 'reason_required' });
+  }
 
   try {
+    // 1️⃣  Uzmi sve podatke o rezervaciji + slotu
     const row = await get(
-      `SELECT b.*, s.date  AS slot_date,
-               s.time     AS slot_time,
-               s.duration AS slot_duration,
-               s.id       AS slot_id
+      `SELECT b.*, s.date AS slot_date, s.time AS slot_time, s.duration AS slot_duration, s.id AS slot_id
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
         WHERE b.id = ?`,
       [id]
     );
+
     if (!row) return res.status(404).json({ error: 'not_found' });
 
-    // NOTE: now we also persist einheiten
+    // 2️⃣  Arhiviraj u canceled_bookings (uključujući einheiten)
     await run(
-  `INSERT INTO canceled_bookings
-     (booking_id, slot_date, slot_time, slot_duration, einheiten,
-      full_name, email, phone, address, plz, city, note,
-      reason, canceled_by, canceled_by_id, created_at)
-   VALUES (?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?, datetime('now'))`,
-  [
-    row.id,
-    row.slot_date,
-    row.slot_time,
-    row.slot_duration,
-    row.einheiten ?? null,
-    row.full_name,
-    row.email,
-    row.phone,
-    row.address,
-    row.plz,
-    row.city,
-    row.note || null,
-    reason.trim(),
-    req.user?.username || 'system',
-    req.user?.uid || null
-  ]
-);
+      `INSERT INTO canceled_bookings
+         (booking_id, slot_date, slot_time, slot_duration, einheiten,
+          full_name, email, phone, address, plz, city, note,
+          reason, canceled_by, canceled_by_id, created_at)
+       VALUES (?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?, datetime('now'))`,
+      [
+        row.id,
+        row.slot_date,
+        row.slot_time,
+        row.slot_duration,
+        row.einheiten ?? null, // ✅ dodano ovdje
+        row.full_name,
+        row.email,
+        row.phone,
+        row.address,
+        row.plz,
+        row.city,
+        row.note || null,
+        reason.trim(),
+        req.user?.username || 'system',
+        req.user?.uid || null
+      ]
+    );
 
     await run(`DELETE FROM bookings WHERE id=?`, [id]);
     await run(`UPDATE slots SET status='free' WHERE id=?`, [row.slot_id]);
@@ -496,35 +498,39 @@ app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
     // 4) E-mail obavijesti
     const when = `${row.slot_date} ${row.slot_time}`;
     const subject = `Termin storniert – ${when}`;
-    const htmlInvitee = `
-      <p>Guten Tag ${escapeHtml(row.full_name)},</p>
+    const htmlKunde = `
+      <p>Guten Tag ${row.full_name},</p>
       <p>Ihr Termin am <b>${row.slot_date}</b> um <b>${row.slot_time}</b> (Dauer ${row.slot_duration} Min.) wurde storniert.</p>
-      <p><b>Grund:</b> ${escapeHtml(reason)}</p>
+      <p><b>Grund:</b> ${reason}</p>
       <p>— ${process.env.BRAND_NAME || 'MyDienst'}</p>
     `;
-    await sendMail({ to: row.email, subject, html: htmlInvitee });
-    await sendMail({
-      to: process.env.ADMIN_EMAIL,
-      subject: `ADMIN: ${subject}`,
-      html: `
-        <p>Storno erfasst.</p>
-        <ul>
-          <li><b>Kunde:</b> ${escapeHtml(row.full_name)} (${escapeHtml(row.email)})</li>
-          <li><b>Telefon:</b> ${escapeHtml(row.phone || '')}</li>
-          <li><b>Adresse:</b> ${escapeHtml(row.address || '')}, ${escapeHtml(row.plz || '')} ${escapeHtml(row.city || '')}</li>
-          <li><b>Datum/Zeit:</b> ${row.slot_date} ${row.slot_time} · ${row.slot_duration} Min.</li>
-          <li><b>Grund:</b> ${escapeHtml(reason)}</li>
-          <li><b>Storniert von:</b> ${escapeHtml(req.user?.username || '')}</li>
-        </ul>`
-    });
+
+    const htmlAdmin = `
+      <p>Storno erfasst:</p>
+      <ul>
+        <li><b>Kunde:</b> ${row.full_name} (${row.email})</li>
+        <li><b>Telefon:</b> ${row.phone || ''}</li>
+        <li><b>Adresse:</b> ${row.address || ''}, ${row.plz || ''} ${row.city || ''}</li>
+        <li><b>Datum/Zeit:</b> ${row.slot_date} ${row.slot_time} · ${row.slot_duration} Min.</li>
+        <li><b>Einheiten:</b> ${row.einheiten ?? '—'}</li>
+        <li><b>Grund:</b> ${reason}</li>
+        <li><b>Storniert von:</b> ${req.user?.username || '—'}</li>
+      </ul>
+    `;
+
+    try {
+      await sendMail({ to: row.email, subject, html: htmlKunde });
+      await sendMail({ to: process.env.ADMIN_EMAIL, subject: `ADMIN: ${subject}`, html: htmlAdmin });
+    } catch (mailErr) {
+      console.error('[mail storno] failed:', mailErr);
+    }
 
     res.json({ ok: true });
   } catch (e) {
-    console.error('[storno]', e);
+    console.error('[storno route]', e);
     res.status(500).json({ error: 'server_error' });
   }
 });
-
 
 // LISTA STORNA (admin i user), filter po datumu slota
 // LISTA STORNA (admin & user), filtriranje po datumu slota
