@@ -463,29 +463,29 @@ app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
 
     // NOTE: now we also persist einheiten
     await run(
-      `INSERT INTO canceled_bookings
-         (booking_id, slot_date, slot_time, slot_duration, einheiten,
-          full_name, email, phone, address, plz, city, note,
-          reason, canceled_by, canceled_by_id, created_at)
-       VALUES (?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?, datetime('now'))`,
-      [
-        row.id,
-        row.slot_date,
-        row.slot_time,
-        row.slot_duration,
-        row.einheiten ?? null,       // <-- here
-        row.full_name,
-        row.email,
-        row.phone,
-        row.address,
-        row.plz,
-        row.city,
-        row.note || null,
-        reason.trim(),
-        req.user?.username || 'system',
-        req.user?.uid || null
-      ]
-    );
+  `INSERT INTO canceled_bookings
+     (booking_id, slot_date, slot_time, slot_duration, einheiten,
+      full_name, email, phone, address, plz, city, note,
+      reason, canceled_by, canceled_by_id, created_at)
+   VALUES (?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?, datetime('now'))`,
+  [
+    row.id,
+    row.slot_date,
+    row.slot_time,
+    row.slot_duration,
+    row.einheiten ?? null,
+    row.full_name,
+    row.email,
+    row.phone,
+    row.address,
+    row.plz,
+    row.city,
+    row.note || null,
+    reason.trim(),
+    req.user?.username || 'system',
+    req.user?.uid || null
+  ]
+);
 
     await run(`DELETE FROM bookings WHERE id=?`, [id]);
     await run(`UPDATE slots SET status='free' WHERE id=?`, [row.slot_id]);
