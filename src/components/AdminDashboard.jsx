@@ -271,55 +271,53 @@ export default function AdminDashboard() {
       </section>
 
       {/* Storno Aufträge */}
-      <section>
-        <h3 className="mb-2 text-lg font-semibold">Storno Aufträge</h3>
-        <div className="overflow-auto rounded-2xl border border-slate-200">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 text-slate-600">
-                <th className="px-3 py-2 text-left">Datum</th>
-                <th className="px-3 py-2 text-left">Zeit</th>
-                <th className="px-3 py-2 text-left">Kunde</th>
-                <th className="px-3 py-2 text-left">Kontakt</th>
-                <th className="px-3 py-2 text-left">Adresse</th>
-                <th className="px-3 py-2 text-left">Einheiten</th>
-                <th className="px-3 py-2 text-left">Grund</th>
-                <th className="px-3 py-2 text-left">Storniert von</th>
-                <th className="px-3 py-2 text-left">Storniert am</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cancelList.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-3 py-4 text-slate-500">
-                    Keine stornierten Aufträge im Zeitraum.
-                  </td>
-                </tr>
-              ) : (
-                cancelList.map((r) => (
-                  <tr key={r.id} className="border-t">
-                    <td className="px-3 py-2 whitespace-nowrap">{r.slot_date}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {r.slot_time} · {r.slot_duration} Min.
-                    </td>
-                    <td className="px-3 py-2">{r.full_name}</td>
-                    <td className="px-3 py-2">
-                      <div>{r.email}</div>
-                      {r.phone && (
-                        <div className="text-slate-500">{r.phone}</div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">{renderAddress(r)}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {renderUnits(r.units)}
-                    </td>
-                    <td className="px-3 py-2">{r.reason}</td>
-                    <td className="px-3 py-2">{r.canceled_by || "—"}</td>
-                    <td className="px-3 py-2">{r.canceled_at || "—"}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
+     <section>
+  <h3 className="mb-2 text-lg font-semibold">Storno Aufträge</h3>
+  <div className="overflow-auto rounded-2xl border border-slate-200">
+    <table className="min-w-full text-sm">
+     <thead>
+  <tr className="bg-slate-50 text-slate-600">
+    <th className="px-3 py-2 text-left">Datum</th>
+    <th className="px-3 py-2 text-left">Zeit</th>
+    <th className="px-3 py-2 text-left">Kunde</th>
+    <th className="px-3 py-2 text-left">Kontakt</th>
+    <th className="px-3 py-2 text-left">Adresse</th>
+    <th className="px-3 py-2 text-left">Einheiten</th> {/* ✅ dodano */}
+    <th className="px-3 py-2 text-left">Grund</th>
+    <th className="px-3 py-2 text-left">Storniert von</th>
+    <th className="px-3 py-2 text-left">Storniert am</th>
+  </tr>
+</thead>
+<tbody>
+  {canceledList.length === 0 ? (
+    <tr>
+      <td colSpan={9} className="px-3 py-4 text-slate-500">
+        Keine stornierten Aufträge im Zeitraum.
+      </td>
+    </tr>
+  ) : (
+    canceledList.map((r) => (
+      <tr key={r.id} className="border-t">
+        <td className="px-3 py-2 whitespace-nowrap">{r.slot_date}</td>
+        <td className="px-3 py-2 whitespace-nowrap">
+          {r.slot_time} · {r.slot_duration} Min.
+        </td>
+        <td className="px-3 py-2">{r.full_name}</td>
+        <td className="px-3 py-2">
+          <div>{r.email}</div>
+          {r.phone && <div className="text-slate-500">{r.phone}</div>}
+        </td>
+        <td className="px-3 py-2">
+          {[r.address, r.plz, r.city].filter(Boolean).join(", ")}
+        </td>
+        <td className="px-3 py-2">{r.einheiten ?? "—"}</td> {/* ✅ prikaz einheiten */}
+        <td className="px-3 py-2">{r.reason || "—"}</td>
+        <td className="px-3 py-2">{r.canceled_by || "—"}</td>
+        <td className="px-3 py-2">{r.canceled_at || "—"}</td>
+      </tr>
+    ))
+  )}
+</tbody>
           </table>
         </div>
       </section>
