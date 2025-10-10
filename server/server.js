@@ -205,23 +205,33 @@ app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
 // ---------- BOOKINGS (public POST) ----------
 app.post('/api/bookings', async (req, res) => {
   try {
-    const { slotId, fullName, email, phone, address, plz, city, note, einheiten } = req.body || {};
+    const {
+      slotId, fullName, email, phone, address, plz, city, note,
+      units,                       // <— dolazi s fronta
+    } = req.body || {};
+
     if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
       return res.status(400).json({ error: 'missing_fields' });
     }
+
+    // normaliziraj units (dozvoli prazno -> NULL, inače cijeli broj >= 0)
+    const einheiten =
+      typeof units === 'number' || /^\d+$/.test(String(units || ''))
+        ? Math.max(0, parseInt(units, 10))
+        : null;
+
     const slot = await get('SELECT * FROM slots WHERE id=?', [slotId]);
     if (!slot) return res.status(404).json({ error: 'slot_not_found' });
     if (slot.status === 'booked') return res.status(409).json({ error: 'already_booked' });
 
-    const units = Number.isFinite(+einheiten) ? parseInt(einheiten, 10) : null;
-
+    // ⬇⬇⬇ dodan stupac einheiten
     const { id: bookingId } = await run(
       'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note, einheiten) VALUES (?,?,?,?,?,?,?,?,?)',
-      [slotId, fullName, email, phone, address, plz, city, note || null, units]
+      [slotId, fullName, email, phone, address, plz, city, note || null, einheiten]
     );
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
 
-    // emailovi async
+    // ... (ostatak mailova ostaje identičan)
     setImmediate(async () => {
       try {
         const transport = makeTransport();
@@ -231,20 +241,13 @@ app.post('/api/bookings', async (req, res) => {
           toAdmin: process.env.ADMIN_EMAIL,
           toInvitee: email,
           slot,
-          booking: { full_name: fullName, email, phone, address, plz, city, note, einheiten: units },
+          booking: { full_name: fullName, email, phone, address, plz, city, note, einheiten },
           replyTo,
         });
-
         await transport.sendMail({ from: process.env.SMTP_USER, to: email, subject, html: htmlInvitee, replyTo });
-        await transport.sendMail({
-          from: process.env.SMTP_USER,
-          to: process.env.ADMIN_EMAIL,
-          subject: `Neue Buchung – ${subject}`,
-          html: htmlAdmin,
-          replyTo,
-        });
+        await transport.sendMail({ from: process.env.SMTP_USER, to: process.env.ADMIN_EMAIL, subject: `Neue Buchung – ${subject}`, html: htmlAdmin, replyTo });
       } catch (err) {
-        console.error('[mail after booking] FAILED:', err);
+        console.error('[mail after booking]', err);
       }
     });
 
@@ -282,9 +285,9 @@ app.get('/api/admin/bookings', ensurePrivileged, async (req, res) => {
 
     const rows = await all(
       `SELECT b.id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city,
-              b.einheiten AS einheiten,
-              b.note, b.created_at, b.completed_by, b.completed_at
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
+              b.einheiten AS units,                     -- <—
+              b.created_at, b.completed_by, b.completed_at
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
         ${where}
@@ -299,15 +302,15 @@ app.get('/api/admin/bookings', ensurePrivileged, async (req, res) => {
 });
 
 // ---------- LISTE (completed) ----------
-app.get('/api/admin/completed', ensurePrivileged, async (req, res) => {
+app.get('/api/admin/completed', ensureAdmin, async (req, res) => {
   try {
     const { from, to } = req.query || {};
     const r = rangeWhere(from, to);
     const rows = await all(
       `SELECT b.id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city,
-              b.einheiten AS einheiten,
-              b.note, b.completed_by, b.completed_at
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
+              b.einheiten AS units,                     -- <—
+              b.completed_by, b.completed_at
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
          ${r.sql ? r.sql + ' AND ' : 'WHERE '} s.status='booked' AND b.completed_at IS NOT NULL
@@ -320,6 +323,7 @@ app.get('/api/admin/completed', ensurePrivileged, async (req, res) => {
     res.status(500).json({ error: 'completed_list_failed' });
   }
 });
+
 
 // ---------- COMPLETE (Fertig) ----------
 app.post('/api/admin/bookings/:id/complete', ensurePrivileged, async (req, res) => {
@@ -335,10 +339,12 @@ app.post('/api/admin/bookings/:id/complete', ensurePrivileged, async (req, res) 
 });
 
 // ---------- DELETE (Storno + audit + mail) ----------
-app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
+app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
   const id = req.params.id;
   const { reason } = req.body || {};
-  if (!reason || !reason.trim()) return res.status(400).json({ error: 'reason_required' });
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: 'reason_required' });
+  }
 
   try {
     const row = await get(
@@ -354,45 +360,42 @@ app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
       `INSERT INTO canceled_bookings
          (booking_id, slot_date, slot_time, slot_duration,
           full_name, email, phone, address, plz, city, note,
-          einheiten, reason, canceled_by, canceled_by_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          reason, canceled_by, canceled_by_id, einheiten, canceled_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`,
       [
         row.id,
         row.slot_date, row.slot_time, row.slot_duration,
         row.full_name, row.email, row.phone, row.address, row.plz, row.city, row.note || null,
-        Number.isFinite(+row.einheiten) ? parseInt(row.einheiten, 10) : null,
-        reason.trim(),
-        req.user?.username || 'system',
-        req.user?.uid || null
+        reason.trim(), req.user?.username || 'system', req.user?.uid || null,
+        row.einheiten ?? null
       ]
     );
 
     await run(`DELETE FROM bookings WHERE id=?`, [id]);
     await run(`UPDATE slots SET status='free' WHERE id=?`, [row.slot_id]);
 
+    // ... (mailovi ostaju identični)
     const when = `${row.slot_date} ${row.slot_time}`;
     const subject = `Termin storniert – ${when}`;
     const html = `
       <p>Guten Tag ${escapeHtml(row.full_name)},</p>
       <p>Ihr Termin am <b>${row.slot_date}</b> um <b>${row.slot_time}</b> (Dauer ${row.slot_duration} Min.) wurde storniert.</p>
       <p><b>Grund:</b> ${escapeHtml(reason)}</p>
-      <p>— ${process.env.BRAND_NAME || 'MyDienst'}</p>
-    `;
+      <p>— ${process.env.BRAND_NAME || 'MyDienst'}</p>`;
     await sendMail({ to: row.email, subject, html });
     await sendMail({
       to: process.env.ADMIN_EMAIL,
       subject: `ADMIN: ${subject}`,
-      html: `
-        <p>Storno erfasst.</p>
-        <ul>
-          <li><b>Kunde:</b> ${escapeHtml(row.full_name)} (${escapeHtml(row.email)})</li>
-          <li><b>Telefon:</b> ${escapeHtml(row.phone || '')}</li>
-          <li><b>Adresse:</b> ${escapeHtml(row.address || '')}, ${escapeHtml(row.plz || '')} ${escapeHtml(row.city || '')}</li>
-          <li><b>Datum/Zeit:</b> ${row.slot_date} ${row.slot_time} · ${row.slot_duration} Min.</li>
-          <li><b>Einheiten:</b> ${row.einheiten ?? '—'}</li>
-          <li><b>Grund:</b> ${escapeHtml(reason)}</li>
-          <li><b>Storniert von:</b> ${escapeHtml(req.user?.username || '')}</li>
-        </ul>`
+      html: `<p>Storno erfasst.</p>
+             <ul>
+               <li><b>Kunde:</b> ${escapeHtml(row.full_name)} (${escapeHtml(row.email)})</li>
+               <li><b>Telefon:</b> ${escapeHtml(row.phone || '')}</li>
+               <li><b>Adresse:</b> ${escapeHtml(row.address || '')}, ${escapeHtml(row.plz || '')} ${escapeHtml(row.city || '')}</li>
+               <li><b>Einheiten:</b> ${row.einheiten ?? '—'}</li>
+               <li><b>Datum/Zeit:</b> ${row.slot_date} ${row.slot_time} · ${row.slot_duration} Min.</li>
+               <li><b>Grund:</b> ${escapeHtml(reason)}</li>
+               <li><b>Storniert von:</b> ${escapeHtml(req.user?.username || '')}</li>
+             </ul>`
     });
 
     res.json({ ok: true });
@@ -402,20 +405,21 @@ app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
   }
 });
 
+
 // ---------- LISTE (cancellations) ----------
 app.get('/api/admin/cancellations', ensurePrivileged, async (req, res) => {
   try {
     const { from, to } = req.query || {};
-    const r = rangeWhere(from, to, 'x.slot_date');
+    const r = rangeWhere(from, to, 'x.slot_date'); // filtriramo po datumu slota; promijeni u x.canceled_at ako želiš
     const rows = await all(
       `SELECT x.id, x.booking_id,
               x.slot_date, x.slot_time, x.slot_duration,
               x.full_name, x.email, x.phone, x.address, x.plz, x.city, x.note,
-              x.einheiten AS einheiten,
+              x.einheiten AS units,                  -- <—
               x.reason, x.canceled_by, x.canceled_by_id,
               x.canceled_at
          FROM canceled_bookings x
-        ${r.sql ? r.sql : ''}
+        ${r.sql ? r.sql.replace(/s\.date/g,'x.slot_date') : ''}
         ORDER BY x.slot_date, x.slot_time`,
       r.params
     );
@@ -425,6 +429,7 @@ app.get('/api/admin/cancellations', ensurePrivileged, async (req, res) => {
     res.status(500).json({ error: 'cancellations_list_failed' });
   }
 });
+
 
 // ---------- CSV ----------
 app.get('/api/bookings.csv', ensurePrivileged, async (_req, res) => {
@@ -458,7 +463,7 @@ app.get('/api/bookings.csv', ensurePrivileged, async (_req, res) => {
 app.get('/api/bookings/:id/print', async (req, res) => {
   try {
     const row = await get(
-      `SELECT b.*, s.date, s.time, s.duration
+      `SELECT b.*, b.einheiten AS units, s.date, s.time, s.duration
          FROM bookings b JOIN slots s ON s.id=b.slot_id
         WHERE b.id=?`,
       [req.params.id]
@@ -484,14 +489,14 @@ app.get('/api/bookings/:id/print', async (req, res) => {
       <div><b>Datum</b></div><div>${row.date}</div>
       <div><b>Uhrzeit</b></div><div>${row.time}</div>
       <div><b>Dauer</b></div><div>${row.duration} Min.</div>
-      <div><b>Einheiten</b></div><div>${row.einheiten ?? '—'}</div>
-      <div><b>Name</b></div><div>${row.full_name}</div>
-      <div><b>E-Mail</b></div><div>${row.email}</div>
-      <div><b>Telefon</b></div><div>${row.phone}</div>
-      <div><b>Adresse</b></div><div>${row.address}</div>
-      <div><b>PLZ</b></div><div>${row.plz}</div>
-      <div><b>Stadt</b></div><div>${row.city}</div>
-      <div><b>Notiz</b></div><div>${row.note || '–'}</div>
+      <div><b>Einheiten</b></div><div>${row.units ?? '—'}</div>
+      <div><b>Name</b></div><div>${escapeHtml(row.full_name)}</div>
+      <div><b>E-Mail</b></div><div>${escapeHtml(row.email)}</div>
+      <div><b>Telefon</b></div><div>${escapeHtml(row.phone || '')}</div>
+      <div><b>Adresse</b></div><div>${escapeHtml(row.address || '')}</div>
+      <div><b>PLZ</b></div><div>${escapeHtml(row.plz || '')}</div>
+      <div><b>Stadt</b></div><div>${escapeHtml(row.city || '')}</div>
+      <div><b>Notiz</b></div><div>${escapeHtml(row.note || '–')}</div>
       <div><b>Erstellt am</b></div><div>${row.created_at}</div>
       <div><b>Erledigt von</b></div><div>${row.completed_by || '—'}</div>
       <div><b>Erledigt am</b></div><div>${row.completed_at || '—'}</div>
@@ -504,5 +509,6 @@ app.get('/api/bookings/:id/print', async (req, res) => {
     res.status(500).send('print_failed');
   }
 });
+
 
 app.listen(PORT, () => console.log(`API running on http://localhost:${PORT}`));
