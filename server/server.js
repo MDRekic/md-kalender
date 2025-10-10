@@ -219,7 +219,7 @@ app.get('/api/slots', async (req, res) => {
 });
 
 // dodavanje i brisanje slotova – samo admin
-app.post('/api/slots', ensureAdmin, async (req, res) => {
+app.post('/api/slots', ensurePrivileged, async (req, res) => {
   try {
     const { date, time, duration = 120 } = req.body || {};
     if (!date || !time) return res.status(400).json({ error: 'missing_fields' });

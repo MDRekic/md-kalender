@@ -188,24 +188,25 @@ export default function AdminPage() {
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Termine – {selectedDate}</h2>
-            {userRole === "admin" && (
-              <button
-                onClick={clearDay}
-                className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-50"
-              >
-                Tag leeren
-              </button>
-            )}
-          </div>
+  <div className="mb-3 flex items-center justify-between">
+    <h2 className="text-lg font-semibold">Termine – {selectedDate}</h2>
+    <button
+      onClick={clearDay}
+      className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-50"
+    >
+      Tag leeren
+    </button>
+  </div>
 
-          {userRole === "admin" && (
-            <>
-              <AdminQuickAdd onAdd={(t, d) => addSlot(t, d)} />
-              <AdminBulkAdd selectedDate={selectedDate} onSubmit={bulkAdd} />
-            </>
-          )}
+  {/* 👇 Pojedinačni dodaci: admin + user */}
+  {(userRole === 'admin' || userRole === 'user') && (
+    <AdminQuickAdd onAdd={(t, d) => addSlot(t, d)} />
+  )}
+
+  {/* 👇 Mjesečni / serijski dodaci: samo admin */}
+  {userRole === 'admin' && (
+    <AdminBulkAdd selectedDate={selectedDate} onSubmit={bulkAdd} />
+  )}
 
           {daySlots.length === 0 ? (
             <p className="mt-2 text-slate-500">Keine Termine an diesem Tag.</p>
