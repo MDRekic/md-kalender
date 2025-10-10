@@ -21,7 +21,7 @@ export default function BookingModal({ slot, onClose, onSubmit }) {
       alert("Bitte eine gültige Anzahl der Einheiten (1–999) eingeben.");
       return;
     }
-    onSubmit({ fullName, email, phone, address, plz, city, units: unitsNum, note });
+    onSubmit({ fullName, email, phone, address, plz, city, units, unitsNum, note });
   };
 
   return (
