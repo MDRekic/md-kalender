@@ -269,37 +269,38 @@ app.post('/api/bookings', async (req, res) => {
 
     // e-mailovi (asinkrono, bez blokiranja odgovora)
     setImmediate(async () => {
-      try {
-        const transport = makeTransport();
-        const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
-        const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
-          brand: process.env.BRAND_NAME || 'MyDienst',
-          toAdmin: process.env.ADMIN_EMAIL,
-          toInvitee: email,
-          slot,
-          booking: { full_name: fullName, email, phone, address, plz, city, note },
-          replyTo,
-        });
+  try {
+    const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
 
-        await transport.sendMail({
-          from: process.env.SMTP_USER,
-          to: email,
-          subject,
-          html: htmlInvitee,
-          replyTo,
-        });
-
-        await transport.sendMail({
-          from: process.env.SMTP_USER,
-          to: process.env.ADMIN_EMAIL,
-          subject: `Neue Buchung – ${subject}`,
-          html: htmlAdmin,
-          replyTo,
-        });
-      } catch (err) {
-        console.error('[mail after booking]', err);
-      }
+    const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
+      brand: process.env.BRAND_NAME || 'MyDienst',
+      toAdmin: process.env.ADMIN_EMAIL,
+      toInvitee: email,
+      slot,
+      booking: { full_name: fullName, email, phone, address, plz, city, note },
+      replyTo,
     });
+
+    await Promise.all([
+      sendMail({
+        to: email,
+        subject,
+        html: htmlInvitee,
+        replyTo,
+      }),
+      sendMail({
+        to: process.env.ADMIN_EMAIL,
+        subject: `Neue Buchung – ${subject}`,
+        html: htmlAdmin,
+        replyTo,
+      }),
+    ]);
+
+    console.log('[mail after booking] sent to invitee + admin for bookingId:', bookingId);
+  } catch (err) {
+    console.error('[mail after booking] FAILED:', err);
+  }
+});
 
     res.json({ bookingId, slotId });
   } catch (e) {
