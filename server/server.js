@@ -286,7 +286,7 @@ app.get('/api/admin/bookings', ensurePrivileged, async (req, res) => {
     const rows = await all(
       `SELECT b.id, s.date, s.time, s.duration,
               b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
-              b.einheiten AS units,                     -- <—
+              b.einheiten AS einheiten,                      -- << DODANO
               b.created_at, b.completed_by, b.completed_at
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
@@ -301,6 +301,7 @@ app.get('/api/admin/bookings', ensurePrivileged, async (req, res) => {
   }
 });
 
+
 // ---------- LISTE (completed) ----------
 app.get('/api/admin/completed', ensurePrivileged, async (req, res) => {
   try {
@@ -309,7 +310,7 @@ app.get('/api/admin/completed', ensurePrivileged, async (req, res) => {
     const rows = await all(
       `SELECT b.id, s.date, s.time, s.duration,
               b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
-              b.einheiten AS units,                     -- <—
+              b.einheiten AS einheiten,                      -- << DODANO
               b.completed_by, b.completed_at
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
@@ -410,16 +411,16 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
 app.get('/api/admin/cancellations', ensurePrivileged, async (req, res) => {
   try {
     const { from, to } = req.query || {};
-    const r = rangeWhere(from, to, 'x.slot_date'); // filtriramo po datumu slota; promijeni u x.canceled_at ako želiš
+    const r = rangeWhere(from, to, 'x.slot_date');
     const rows = await all(
       `SELECT x.id, x.booking_id,
               x.slot_date, x.slot_time, x.slot_duration,
               x.full_name, x.email, x.phone, x.address, x.plz, x.city, x.note,
-              x.einheiten AS units,                  -- <—
+              x.einheiten AS einheiten,                      -- << DODANO (ako već nije)
               x.reason, x.canceled_by, x.canceled_by_id,
-              x.canceled_at
+              x.created_at AS canceled_at
          FROM canceled_bookings x
-        ${r.sql ? r.sql.replace(/s\.date/g,'x.slot_date') : ''}
+         ${r.sql ? r.sql : ''}        -- filtriramo po slot_date ili po želji
         ORDER BY x.slot_date, x.slot_time`,
       r.params
     );
