@@ -6,7 +6,7 @@ import AdminDashboard from "../components/AdminDashboard";
 import CalendarMonth from "../components/CalendarMonth";
 import AdminQuickAdd from "../components/AdminQuickAdd";
 import AdminBulkAdd from "../components/AdminBulkAdd";
-
+import AdminUserManager from "../components/AdminUserManager";
 import { addMonths, ymd } from "../lib/date";
 import {
   authMe,
@@ -251,6 +251,11 @@ export default function AdminPage() {
       <div className="mt-6">
         <AdminDashboard onLogout={handleLogout} />
       </div>
+      {userRole === "admin" && (
+  <div className="mt-6">
+    <AdminUserManager />
+  </div>
+)}
     </div>
   );
 }

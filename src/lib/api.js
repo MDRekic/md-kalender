@@ -99,3 +99,18 @@ export async function adminDeleteBooking(id, reason) {
 export async function adminCompleteBooking(id) {
   return jfetch("POST", `/api/admin/bookings/${id}/complete`);
 }
+
+
+/* -------- ADMIN: USERS -------- */
+export async function adminListUsers() {
+  return jfetch("GET", "/api/admin/users");
+}
+export async function adminCreateUser({ username, password, role = "user", email = null }) {
+  return jfetch("POST", "/api/admin/users", { username, password, role, email });
+}
+export async function adminUpdateUser(id, patch) {
+  return jfetch("PATCH", `/api/admin/users/${id}`, patch);
+}
+export async function adminDeleteUser(id) {
+  return jfetch("DELETE", `/api/admin/users/${id}`);
+}
