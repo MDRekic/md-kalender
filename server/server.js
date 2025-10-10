@@ -295,6 +295,8 @@ setImmediate(async () => {
   }
 });
 
+
+
 /* -------------- ADMIN BOOKINGS LIST (with optional filter) -------- */
 app.get('/api/admin/bookings', ensurePrivileged, async (req, res) => {
   try {
