@@ -8,8 +8,8 @@ import {
   adminCompleteBooking,
   printUrl,
 } from "../lib/api";
-import { printUrl } from "../lib/api";
-// helper za YYYY-MM-DD
+
+// helper za YYYY-MM-DD format
 function ymd(d = new Date()) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -25,17 +25,15 @@ export default function AdminDashboard() {
   const [to, setTo] = useState(() => ymd());
 
   // liste
-  const [openList, setOpenList] = useState([]);       // Offene Aufträge
-  const [doneList, setDoneList] = useState([]);       // Erledigte Aufträge
-  const [cancelList, setCancelList] = useState([]);   // Storno Aufträge
-  const [completedList, setCompletedList] = useState([]);
-  const [canceledList, setCanceledList] = useState([]);
+  const [openList, setOpenList] = useState([]); // Offene Aufträge
+  const [doneList, setDoneList] = useState([]); // Erledigte Aufträge
+  const [canceledList, setCanceledList] = useState([]); // Storno Aufträge
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
   const periodLabel = useMemo(
-    () => `${from || "—"}  —  ${to || "—"}`,
+    () => `${from || "—"} — ${to || "—"}`,
     [from, to]
   );
 
@@ -50,7 +48,7 @@ export default function AdminDashboard() {
       ]);
       setOpenList(open || []);
       setDoneList(done || []);
-      setCancelList(canc || []);
+      setCanceledList(canc || []);
     } catch (e) {
       console.error(e);
       setErr("Fehler beim Laden der Listen.");
@@ -99,10 +97,11 @@ export default function AdminDashboard() {
     [r.address, r.plz, r.city].filter(Boolean).join(", ");
 
   const renderUnits = (v) =>
-    Number.isFinite(+v) ? String(v) : "—";
+    Number.isFinite(+v) && +v > 0 ? String(v) : "—";
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      {/* Header & Filter */}
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Admin – Reservierungen</h2>
@@ -141,9 +140,7 @@ export default function AdminDashboard() {
           {err}
         </div>
       )}
-      {loading && (
-        <div className="mb-3 text-sm text-slate-500">Lade …</div>
-      )}
+      {loading && <div className="mb-3 text-sm text-slate-500">Lade …</div>}
 
       {/* Offene Aufträge */}
       <section className="mb-8">
@@ -185,7 +182,7 @@ export default function AdminDashboard() {
                     </td>
                     <td className="px-3 py-2">{renderAddress(r)}</td>
                     <td className="px-3 py-2 whitespace-nowrap">
-                      {renderUnits(r.units)}
+                      {renderUnits(r.einheiten)}
                     </td>
                     <td className="px-3 py-2">{r.note || "—"}</td>
                     <td className="px-3 py-2">
@@ -259,7 +256,7 @@ export default function AdminDashboard() {
                     </td>
                     <td className="px-3 py-2">{renderAddress(r)}</td>
                     <td className="px-3 py-2 whitespace-nowrap">
-                      {renderUnits(r.units)}
+                      {renderUnits(r.einheiten)}
                     </td>
                     <td className="px-3 py-2">{r.note || "—"}</td>
                     <td className="px-3 py-2">{r.completed_by || "—"}</td>
@@ -273,56 +270,60 @@ export default function AdminDashboard() {
       </section>
 
       {/* Storno Aufträge */}
-     <section>
-  <h3 className="mb-2 text-lg font-semibold">Storno Aufträge</h3>
-  <div className="overflow-auto rounded-2xl border border-slate-200">
-    <table className="min-w-full text-sm">
-      <thead>
-        <tr className="bg-slate-50 text-slate-600">
-          <th className="px-3 py-2 text-left">Datum</th>
-          <th className="px-3 py-2 text-left">Zeit</th>
-          <th className="px-3 py-2 text-left">Kunde</th>
-          <th className="px-3 py-2 text-left">Kontakt</th>
-          <th className="px-3 py-2 text-left">Adresse</th>
-          <th className="px-3 py-2 text-left">Einheiten</th>
-          <th className="px-3 py-2 text-left">Grund</th>
-          <th className="px-3 py-2 text-left">Storniert von</th>
-          <th className="px-3 py-2 text-left">Storniert am</th>
-        </tr>
-      </thead>
-      <tbody>
-        {canceledList.length === 0 ? (
-          <tr>
-            <td colSpan={9} className="px-3 py-4 text-slate-500">
-              Keine stornierten Aufträge im Zeitraum.
-            </td>
-          </tr>
-        ) : (
-          canceledList.map((r) => (
-            <tr key={r.id} className="border-t">
-              <td className="px-3 py-2 whitespace-nowrap">{r.slot_date}</td>
-              <td className="px-3 py-2 whitespace-nowrap">
-                {r.slot_time} · {r.slot_duration} Min.
-              </td>
-              <td className="px-3 py-2">{r.full_name}</td>
-              <td className="px-3 py-2">
-                <div>{r.email}</div>
-                {r.phone && <div className="text-slate-500">{r.phone}</div>}
-              </td>
-              <td className="px-3 py-2">
-                {[r.address, r.plz, r.city].filter(Boolean).join(", ")}
-              </td>
-              <td className="px-3 py-2">{r.einheiten ?? "—"}</td>
-              <td className="px-3 py-2">{r.reason || "—"}</td>
-              <td className="px-3 py-2">{r.canceled_by || "—"}</td>
-              <td className="px-3 py-2">{r.canceled_at || "—"}</td>
-            </tr>
-          ))
-        )}
-      </tbody>
-    </table>
-  </div>
-</section>
+      <section>
+        <h3 className="mb-2 text-lg font-semibold">Storno Aufträge</h3>
+        <div className="overflow-auto rounded-2xl border border-slate-200">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 text-slate-600">
+                <th className="px-3 py-2 text-left">Datum</th>
+                <th className="px-3 py-2 text-left">Zeit</th>
+                <th className="px-3 py-2 text-left">Kunde</th>
+                <th className="px-3 py-2 text-left">Kontakt</th>
+                <th className="px-3 py-2 text-left">Adresse</th>
+                <th className="px-3 py-2 text-left">Einheiten</th>
+                <th className="px-3 py-2 text-left">Grund</th>
+                <th className="px-3 py-2 text-left">Storniert von</th>
+                <th className="px-3 py-2 text-left">Storniert am</th>
+              </tr>
+            </thead>
+            <tbody>
+              {canceledList.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-3 py-4 text-slate-500">
+                    Keine stornierten Aufträge im Zeitraum.
+                  </td>
+                </tr>
+              ) : (
+                canceledList.map((r) => (
+                  <tr key={r.id} className="border-t">
+                    <td className="px-3 py-2 whitespace-nowrap">{r.slot_date}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {r.slot_time} · {r.slot_duration} Min.
+                    </td>
+                    <td className="px-3 py-2">{r.full_name}</td>
+                    <td className="px-3 py-2">
+                      <div>{r.email}</div>
+                      {r.phone && (
+                        <div className="text-slate-500">{r.phone}</div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {[r.address, r.plz, r.city].filter(Boolean).join(", ")}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {renderUnits(r.einheiten)}
+                    </td>
+                    <td className="px-3 py-2">{r.reason || "—"}</td>
+                    <td className="px-3 py-2">{r.canceled_by || "—"}</td>
+                    <td className="px-3 py-2">{r.canceled_at || "—"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }
