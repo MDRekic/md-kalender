@@ -524,26 +524,40 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
 });
 
 // LISTA STORNA (admin i user), filter po datumu slota
+// LISTA STORNA (admin & user), filtriranje po datumu slota
 app.get('/api/admin/cancellations', ensurePrivileged, async (req, res) => {
-  try {
-    const { from, to } = req.query || {};
-    const params = [];
-    let where = '1=1';
-    if (from) { where += ' AND x.slot_date >= ?'; params.push(from); }
-    if (to)   { where += ' AND x.slot_date <= ?'; params.push(to); }
+  const { from, to } = req.query || {};
+  const params = [];
+  let where = 'WHERE 1=1';
+  if (from) { where += ' AND x.slot_date >= ?'; params.push(from); }
+  if (to)   { where += ' AND x.slot_date <= ?'; params.push(to); }
 
-const rows = await all(
-  `SELECT x.id, x.booking_id,
-          x.slot_date, x.slot_time, x.slot_duration,
-          x.full_name, x.email, x.phone, x.address, x.plz, x.city,
-          x.units, x.note,
-          x.reason, x.canceled_by, x.canceled_by_id,
-          x.created_at AS canceled_at
-     FROM canceled_bookings x
-    ${where.sql ? where.sql.replace(/s\.date/g, 'x.slot_date') : ''}
-    ORDER BY x.slot_date, x.slot_time`,
-  where.params
-);
+  const baseSql = `
+    SELECT x.id, x.booking_id,
+           x.slot_date, x.slot_time, x.slot_duration,
+           x.full_name, x.email, x.phone, x.address, x.plz, x.city, x.note,
+           x.reason, x.canceled_by, x.canceled_by_id,
+           x.created_at AS canceled_at
+      FROM canceled_bookings x
+      ${where}
+      ORDER BY x.slot_date, x.slot_time
+  `;
+
+  try {
+    let rows;
+    try {
+      // pokušaj s created_at
+      rows = await all(baseSql, params);
+    } catch (e) {
+      // fallback ako kolona ne postoji
+      if (String(e).includes('no such column: x.created_at')) {
+        const fallbackSql = baseSql.replace(',\n           x.created_at AS canceled_at', '');
+        rows = await all(fallbackSql, params);
+        rows = rows.map(r => ({ ...r, canceled_at: null }));
+      } else {
+        throw e;
+      }
+    }
     res.json(rows);
   } catch (e) {
     console.error(e);
