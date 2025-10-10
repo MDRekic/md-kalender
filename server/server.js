@@ -446,12 +446,9 @@ app.post('/api/admin/bookings/:id/complete', ensurePrivileged, async (req, res) 
 app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
   const id = req.params.id;
   const { reason } = req.body || {};
-  if (!reason || !reason.trim()) {
-    return res.status(400).json({ error: 'reason_required' });
-  }
+  if (!reason || !reason.trim()) return res.status(400).json({ error: 'reason_required' });
 
   try {
-    // 1) Učitaj postojeću rezervaciju i slot
     const row = await get(
       `SELECT b.*, s.date  AS slot_date,
                s.time     AS slot_time,
@@ -464,34 +461,37 @@ app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
     );
     if (!row) return res.status(404).json({ error: 'not_found' });
 
-    // 2) Upis u canceled_bookings (AUDIT)
+    // NOTE: now we also persist einheiten
     await run(
       `INSERT INTO canceled_bookings
-         (booking_id, slot_date, slot_time, slot_duration,
+         (booking_id, slot_date, slot_time, slot_duration, einheiten,
           full_name, email, phone, address, plz, city, note,
           reason, canceled_by, canceled_by_id, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`,
+       VALUES (?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?, datetime('now'))`,
       [
-        row.id,                 // booking_id
-        row.slot_date,          // slot_date
-        row.slot_time,          // slot_time
-        row.slot_duration,      // slot_duration
-        row.full_name,          // full_name
-        row.email,              // email
-        row.phone,              // phone
-        row.address,            // address
-        row.plz,                // plz
-        row.city,               // city
-        row.note || null,       // note
-        reason.trim(),          // reason
-        req.user?.username || 'system', // canceled_by
-        req.user?.uid || null           // canceled_by_id
+        row.id,
+        row.slot_date,
+        row.slot_time,
+        row.slot_duration,
+        row.einheiten ?? null,       // <-- here
+        row.full_name,
+        row.email,
+        row.phone,
+        row.address,
+        row.plz,
+        row.city,
+        row.note || null,
+        reason.trim(),
+        req.user?.username || 'system',
+        req.user?.uid || null
       ]
     );
 
-    // 3) Obriši rezervaciju i oslobodi slot
     await run(`DELETE FROM bookings WHERE id=?`, [id]);
     await run(`UPDATE slots SET status='free' WHERE id=?`, [row.slot_id]);
+
+
+    
 
     // 4) E-mail obavijesti
     const when = `${row.slot_date} ${row.slot_time}`;
@@ -529,38 +529,22 @@ app.delete('/api/admin/bookings/:id', ensurePrivileged, async (req, res) => {
 // LISTA STORNA (admin i user), filter po datumu slota
 // LISTA STORNA (admin & user), filtriranje po datumu slota
 app.get('/api/admin/cancellations', ensurePrivileged, async (req, res) => {
-  const { from, to } = req.query || {};
-  const params = [];
-  let where = 'WHERE 1=1';
-  if (from) { where += ' AND x.slot_date >= ?'; params.push(from); }
-  if (to)   { where += ' AND x.slot_date <= ?'; params.push(to); }
-
-  const baseSql = `
-    SELECT x.id, x.booking_id,
-           x.slot_date, x.slot_time, x.slot_duration,
-           x.full_name, x.email, x.phone, x.address, x.plz, x.city, x.note,
-           x.reason, x.canceled_by, x.canceled_by_id,
-           x.created_at AS canceled_at
-      FROM canceled_bookings x
-      ${where}
-      ORDER BY x.slot_date, x.slot_time
-  `;
-
   try {
-    let rows;
-    try {
-      // pokušaj s created_at
-      rows = await all(baseSql, params);
-    } catch (e) {
-      // fallback ako kolona ne postoji
-      if (String(e).includes('no such column: x.created_at')) {
-        const fallbackSql = baseSql.replace(',\n           x.created_at AS canceled_at', '');
-        rows = await all(fallbackSql, params);
-        rows = rows.map(r => ({ ...r, canceled_at: null }));
-      } else {
-        throw e;
-      }
-    }
+    const { from, to } = req.query || {};
+    const r = rangeWhere(from, to, 'x.slot_date');
+    const rows = await all(
+      `SELECT x.id, x.booking_id,
+              x.slot_date, x.slot_time, x.slot_duration,
+              x.einheiten,                             -- <— add this
+              x.full_name, x.email, x.phone, x.address, x.plz, x.city, x.note,
+              x.reason,
+              x.canceled_by, x.canceled_by_id,
+              x.created_at AS canceled_at
+         FROM canceled_bookings x
+        ${r.sql ? r.sql.replace(/s\.date/g, 'x.slot_date') : 'WHERE 1=1'}
+        ORDER BY x.slot_date, x.slot_time`,
+      r.params
+    );
     res.json(rows);
   } catch (e) {
     console.error(e);
