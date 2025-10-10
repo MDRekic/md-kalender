@@ -190,12 +190,12 @@ export default function AdminPage() {
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
   <div className="mb-3 flex items-center justify-between">
     <h2 className="text-lg font-semibold">Termine – {selectedDate}</h2>
-    <button
+    {/* <button
       onClick={clearDay}
       className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-50"
     >
       Tag leeren
-    </button>
+    </button>*/}
   </div>
 
   {/* 👇 Pojedinačni dodaci: admin + user */}
