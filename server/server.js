@@ -302,7 +302,7 @@ app.get('/api/admin/bookings', ensurePrivileged, async (req, res) => {
 });
 
 // ---------- LISTE (completed) ----------
-app.get('/api/admin/completed', ensureAdmin, async (req, res) => {
+app.get('/api/admin/completed', ensurePrivileged, async (req, res) => {
   try {
     const { from, to } = req.query || {};
     const r = rangeWhere(from, to);
