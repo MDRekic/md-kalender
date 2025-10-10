@@ -8,9 +8,9 @@ import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 
 import { all, get, migrate, run } from './db.js';
-//import { makeTransport, bookingEmails, sendMail } from './email.js';
+import { makeTransport, bookingEmails, sendMail } from './email.js';
 import { issueToken, verifyToken } from './auth.js';
-import { bookingEmails, sendMail } from './email.js';
+//import { bookingEmails, sendMail } from './email.js';
 
 dotenv.config();
 
