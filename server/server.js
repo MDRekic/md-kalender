@@ -184,11 +184,17 @@ app.get('/api/slots', async (req, res) => {
     res.status(500).json({ error: 'slots_list_failed' });
   }
 });
-app.post('/api/slots', ensureAdmin, async (req, res) => {
+
+// PRIVILEGIRANI (admin i operater) – dodaj JEDAN slot
+// (operater smije dodati pojedinačni slot; bulk dodavanje je sakriveno u UI)
+app.post('/api/slots', ensurePrivileged, async (req, res) => {
   try {
     const { date, time, duration = 120 } = req.body || {};
     if (!date || !time) return res.status(400).json({ error: 'missing_fields' });
-    const { id } = await run('INSERT INTO slots (date,time,duration,status) VALUES (?,?,?,?)', [date, time, duration, 'free']);
+    const { id } = await run(
+      'INSERT INTO slots (date,time,duration,status) VALUES (?,?,?,?)',
+      [date, time, duration, 'free']
+    );
     const row = await get('SELECT * FROM slots WHERE id=?', [id]);
     res.json(row);
   } catch (e) {
@@ -196,9 +202,14 @@ app.post('/api/slots', ensureAdmin, async (req, res) => {
     res.status(500).json({ error: 'slot_create_failed' });
   }
 });
+
+// (po želji) brisanje slobodnog slota – ovo ostavite za admina
 app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
   try {
-    const { changes } = await run('DELETE FROM slots WHERE id=? AND status!="booked"', [req.params.id]);
+    const { changes } = await run(
+      'DELETE FROM slots WHERE id=? AND status!="booked"',
+      [req.params.id]
+    );
     res.json({ deleted: changes });
   } catch (e) {
     console.error(e);
