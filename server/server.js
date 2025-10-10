@@ -344,13 +344,13 @@ app.get('/api/admin/bookings', ensurePrivileged, async (req, res) => {
   try {
     const { from, to } = req.query || {};
     const params = [];
-    let where = '';
+    let where = ' WHERE b.completed_at IS NULL';
     if (from) {
-      where += (where ? ' AND ' : ' WHERE ') + 's.date >= ?';
+      where += ' AND s.date >= ?';
       params.push(from);
     }
     if (to) {
-      where += (where ? ' AND ' : ' WHERE ') + 's.date <= ?';
+      where += ' AND s.date >= ?';
       params.push(to);
     }
 
