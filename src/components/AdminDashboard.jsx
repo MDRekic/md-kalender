@@ -265,9 +265,7 @@ export default function AdminDashboard({ onLogout }) {
                 <th className="px-3 py-2 text-left">Kunde</th>
                 <th className="px-3 py-2 text-left">Kontakt</th>
                 <th className="px-3 py-2 text-left">Adresse</th>
-                <td className="px-3 py-2 whitespace-nowrap">
-  {Number.isFinite(+r.units) ? r.units : '—'}
-</td>
+                <td className="px-3 py-2 whitespace-nowrap"> {Number.isFinite(+r.units) ? r.units : '—'}</td>
                 <th className="px-3 py-2 text-left">Grund</th>
                 <th className="px-3 py-2 text-left">Storniert von</th>
                 <th className="px-3 py-2 text-left">Storniert am</th>
