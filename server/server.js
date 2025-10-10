@@ -597,7 +597,7 @@ app.get('/api/bookings/:id/print', async (req, res) => {
       <div><b>Adresse</b></div><div>${row.address}</div>
       <div><b>PLZ</b></div><div>${row.plz}</div>
       <div><b>Stadt</b></div><div>${row.city}</div>
-      <div><b>Einheiten</b></div><div>${row.units}</div>
+      <div><b>Einheiten</b></div><div>${row.einheiten ?? '—'}</div>
       <div><b>Notiz</b></div><div>${row.note || '–'}</div>
       <div><b>Erstellt am</b></div><div>${row.created_at}</div>
       <div><b>Erledigt von</b></div><div>${row.completed_by || '—'}</div>
