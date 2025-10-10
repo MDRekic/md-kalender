@@ -157,7 +157,7 @@ export default function AdminPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Adminssssssss</h1>
+        <h1 className="text-2xl font-bold">Admin</h1>
         <div className="flex gap-2">
           <Link
             to="/kalendar"
