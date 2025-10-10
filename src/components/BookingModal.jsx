@@ -12,16 +12,20 @@ export default function BookingModal({ slot, onClose, onSubmit }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!fullName || !email || !phone || !address || !plz || !city) {
-      alert("Bitte füllen Sie alle Pflichtfelder aus (Name, E-Mail, Telefon, Adresse, PLZ, Stadt).");
-      return;
-    }
+
+    if (!fullName.trim()) return alert("Name ist erforderlich.");
+    if (!email.trim())    return alert("E-Mail ist erforderlich.");
+    if (!phone.trim())    return alert("Telefon ist erforderlich.");
+    if (!address.trim())  return alert("Adresse ist erforderlich.");
+    if (!/^\d{4,5}$/.test(plz)) return alert("PLZ muss 4–5 Ziffern haben.");
+    if (!city.trim())     return alert("Stadt ist erforderlich.");
+
     const unitsNum = Number(units);
     if (!Number.isInteger(unitsNum) || unitsNum < 1 || unitsNum > 999) {
-      alert("Bitte eine gültige Anzahl der Einheiten (1–999) eingeben.");
-      return;
+      return alert("Einheiten: bitte Zahl 1–999.");
     }
-    onSubmit({ fullName, email, phone, address, plz, city, units, unitsNum, note });
+
+    onSubmit({ fullName, email, phone, address, plz, city, units: unitsNum, note });
   };
 
   return (
@@ -34,108 +38,61 @@ export default function BookingModal({ slot, onClose, onSubmit }) {
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="block text-sm font-medium">Vollständiger Name *</label>
-            <input
-              type="text"
-              className="w-full rounded-lg border border-slate-300 p-2"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              required
-            />
+            <input className="w-full rounded-lg border border-slate-300 p-2"
+                   value={fullName} onChange={(e) => setFullName(e.target.value)} />
           </div>
 
           <div>
             <label className="block text-sm font-medium">E-Mail *</label>
-            <input
-              type="email"
-              className="w-full rounded-lg border border-slate-300 p-2"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
+            <input type="email" className="w-full rounded-lg border border-slate-300 p-2"
+                   value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
 
           <div>
             <label className="block text-sm font-medium">Telefonnummer *</label>
-            <input
-              type="tel"
-              className="w-full rounded-lg border border-slate-300 p-2"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              required
-            />
+            <input className="w-full rounded-lg border border-slate-300 p-2"
+                   value={phone} onChange={(e) => setPhone(e.target.value)} />
           </div>
 
           <div>
             <label className="block text-sm font-medium">Adresse *</label>
-            <input
-              type="text"
-              className="w-full rounded-lg border border-slate-300 p-2"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              required
-            />
+            <input className="w-full rounded-lg border border-slate-300 p-2"
+                   value={address} onChange={(e) => setAddress(e.target.value)} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium">PLZ *</label>
-              <input
-                type="text"
-                pattern="\d{4,5}"
-                title="Bitte 4–5 Ziffern eingeben"
-                className="w-full rounded-lg border border-slate-300 p-2"
-                value={plz}
-                onChange={(e) => setPlz(e.target.value)}
-                required
-              />
+              <input className="w-full rounded-lg border border-slate-300 p-2"
+                     value={plz} onChange={(e) => setPlz(e.target.value)} />
             </div>
             <div>
               <label className="block text-sm font-medium">Stadt *</label>
-              <input
-                type="text"
-                className="w-full rounded-lg border border-slate-300 p-2"
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                required
-              />
+              <input className="w-full rounded-lg border border-slate-300 p-2"
+                     value={city} onChange={(e) => setCity(e.target.value)} />
             </div>
           </div>
 
           <div>
             <label className="block text-sm font-medium">Einheiten (Klingeln) *</label>
-            <input
-              type="number"
-              min={1}
-              max={999}
-              className="w-full rounded-lg border border-slate-300 p-2"
-              value={units}
-              onChange={(e) => setUnits(e.target.value)}
-              required
-            />
+            <input type="number" min={1} max={999}
+                   className="w-full rounded-lg border border-slate-300 p-2"
+                   value={units} onChange={(e) => setUnits(e.target.value)} />
           </div>
 
           <div>
             <label className="block text-sm font-medium">Notiz (optional)</label>
-            <textarea
-              className="w-full rounded-lg border border-slate-300 p-2"
-              rows="2"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
+            <textarea rows="2" className="w-full rounded-lg border border-slate-300 p-2"
+                      value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
 
           <div className="flex justify-between pt-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
-            >
+            <button type="button" onClick={onClose}
+                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">
               Abbrechen
             </button>
-            <button
-              type="submit"
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700"
-            >
+            <button type="submit"
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700">
               Termin buchen
             </button>
           </div>

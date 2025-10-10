@@ -42,36 +42,25 @@ export default function KalendarPage() {
     }
   }
 
-  async function submitBooking({ fullName, email, phone, address, units, plz, city, note }) {
-    if (!fullName || !email || !phone || !address || units || !plz || !city) {
-      alert("Bitte füllen Sie alle Pflichtfelder aus.");
-      return;
-    }
-    try {
-      const { bookingId } = await createBooking({
-        slotId: slotForBooking.id,
-        fullName,
-        email,
-        phone,
-        address,
-        units,
-        plz,
-        city,
-        note,
-      });
-
-      setBookingOpen(false);
-      setSlotForBooking(null);
-
-      // ponovo učitaj SVE slotove da bi se kalendar i desna lista osvježili
-      listSlots().then(setSlots);
-
-      if (bookingId) window.open(printUrl(bookingId), "_blank");
-    } catch (e) {
-      alert("Buchung fehlgeschlagen.");
-      console.error(e);
-    }
+  async function submitBooking({ fullName, email, phone, address, plz, city, units, note }) {
+  if (!fullName || !email || !phone || !address || !plz || !city) {
+    alert("Bitte füllen Sie alle Pflichtfelder aus.");
+    return;
   }
+  try {
+    const { bookingId } = await createBooking({
+      slotId: slotForBooking.id,
+      fullName, email, phone, address, plz, city, units, note,
+    });
+    setBookingOpen(false);
+    setSlotForBooking(null);
+    listSlots(selectedDate).then(setSlots);
+    if (bookingId) window.open(printUrl(bookingId), "_blank");
+  } catch (e) {
+    alert("Buchung fehlgeschlagen.");
+    console.error(e);
+  }
+}
 
   return (
     <>
