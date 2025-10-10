@@ -9,7 +9,7 @@ import {
   printUrl,
 } from "../lib/api";
 
-// helper za YYYY-MM-DD format
+// YYYY-MM-DD helper
 function ymd(d = new Date()) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -18,24 +18,19 @@ function ymd(d = new Date()) {
 }
 
 export default function AdminDashboard() {
-  // period filter
   const [from, setFrom] = useState(() =>
     ymd(new Date(new Date().setDate(new Date().getDate() - 30)))
   );
   const [to, setTo] = useState(() => ymd());
 
-  // liste
-  const [openList, setOpenList] = useState([]); // Offene Aufträge
-  const [doneList, setDoneList] = useState([]); // Erledigte Aufträge
-  const [canceledList, setCanceledList] = useState([]); // Storno Aufträge
+  const [openList, setOpenList] = useState([]);
+  const [doneList, setDoneList] = useState([]);
+  const [canceledList, setCanceledList] = useState([]);
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  const periodLabel = useMemo(
-    () => `${from || "—"} — ${to || "—"}`,
-    [from, to]
-  );
+  const periodLabel = useMemo(() => `${from || "—"}  —  ${to || "—"}`, [from, to]);
 
   async function reloadLists() {
     setLoading(true);
@@ -57,14 +52,10 @@ export default function AdminDashboard() {
     }
   }
 
-  useEffect(() => {
-    reloadLists();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { reloadLists(); }, []); // on mount
 
-  function onPrint(row) {
+  const onPrint = (row) =>
     window.open(printUrl(row.id), "_blank", "noopener,noreferrer");
-  }
 
   async function onComplete(row) {
     if (!window.confirm("Diesen Auftrag als erledigt markieren?")) return;
@@ -93,15 +84,12 @@ export default function AdminDashboard() {
     }
   }
 
-  const renderAddress = (r) =>
-    [r.address, r.plz, r.city].filter(Boolean).join(", ");
-
+  const renderAddress = (r) => [r.address, r.plz, r.city].filter(Boolean).join(", ");
   const renderUnits = (v) =>
-    Number.isFinite(+v) && +v > 0 ? String(v) : "—";
+    v === null || v === undefined || v === "" ? "—" : String(v);
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      {/* Header & Filter */}
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Admin – Reservierungen</h2>
@@ -135,11 +123,7 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {err && (
-        <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          {err}
-        </div>
-      )}
+      {err && <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</div>}
       {loading && <div className="mb-3 text-sm text-slate-500">Lade …</div>}
 
       {/* Offene Aufträge */}
@@ -176,33 +160,20 @@ export default function AdminDashboard() {
                     <td className="px-3 py-2">{r.full_name}</td>
                     <td className="px-3 py-2">
                       <div>{r.email}</div>
-                      {r.phone && (
-                        <div className="text-slate-500">{r.phone}</div>
-                      )}
+                      {r.phone && <div className="text-slate-500">{r.phone}</div>}
                     </td>
                     <td className="px-3 py-2">{renderAddress(r)}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {renderUnits(r.einheiten)}
-                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">{renderUnits(r.einheiten)}</td>
                     <td className="px-3 py-2">{r.note || "—"}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-2">
-                        <button
-                          onClick={() => onPrint(r)}
-                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-                        >
+                        <button onClick={() => onPrint(r)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
                           Drucken
                         </button>
-                        <button
-                          onClick={() => onComplete(r)}
-                          className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50"
-                        >
+                        <button onClick={() => onComplete(r)} className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50">
                           Fertig
                         </button>
-                        <button
-                          onClick={() => onDelete(r)}
-                          className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-50"
-                        >
+                        <button onClick={() => onDelete(r)} className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-50">
                           Löschen
                         </button>
                       </div>
@@ -250,14 +221,10 @@ export default function AdminDashboard() {
                     <td className="px-3 py-2">{r.full_name}</td>
                     <td className="px-3 py-2">
                       <div>{r.email}</div>
-                      {r.phone && (
-                        <div className="text-slate-500">{r.phone}</div>
-                      )}
+                      {r.phone && <div className="text-slate-500">{r.phone}</div>}
                     </td>
                     <td className="px-3 py-2">{renderAddress(r)}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {renderUnits(r.einheiten)}
-                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">{renderUnits(r.einheiten)}</td>
                     <td className="px-3 py-2">{r.note || "—"}</td>
                     <td className="px-3 py-2">{r.completed_by || "—"}</td>
                     <td className="px-3 py-2">{r.completed_at || "—"}</td>
@@ -304,16 +271,10 @@ export default function AdminDashboard() {
                     <td className="px-3 py-2">{r.full_name}</td>
                     <td className="px-3 py-2">
                       <div>{r.email}</div>
-                      {r.phone && (
-                        <div className="text-slate-500">{r.phone}</div>
-                      )}
+                      {r.phone && <div className="text-slate-500">{r.phone}</div>}
                     </td>
-                    <td className="px-3 py-2">
-                      {[r.address, r.plz, r.city].filter(Boolean).join(", ")}
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {renderUnits(r.einheiten)}
-                    </td>
+                    <td className="px-3 py-2">{[r.address, r.plz, r.city].filter(Boolean).join(", ")}</td>
+                    <td className="px-3 py-2">{renderUnits(r.einheiten)}</td>
                     <td className="px-3 py-2">{r.reason || "—"}</td>
                     <td className="px-3 py-2">{r.canceled_by || "—"}</td>
                     <td className="px-3 py-2">{r.canceled_at || "—"}</td>
