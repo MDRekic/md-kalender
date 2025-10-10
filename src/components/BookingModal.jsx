@@ -7,15 +7,21 @@ export default function BookingModal({ slot, onClose, onSubmit }) {
   const [address, setAddress] = useState("");
   const [plz, setPlz] = useState("");
   const [city, setCity] = useState("");
+  const [units, setUnits] = useState(1);
   const [note, setNote] = useState("");
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!fullName || !email || !phone || !address || !plz || !city ) {
+    if (!fullName || !email || !phone || !address || !plz || !city) {
       alert("Bitte füllen Sie alle Pflichtfelder aus (Name, E-Mail, Telefon, Adresse, PLZ, Stadt).");
       return;
     }
-    onSubmit({ fullName, email, phone, address, plz, city });
+    const unitsNum = Number(units);
+    if (!Number.isInteger(unitsNum) || unitsNum < 1 || unitsNum > 999) {
+      alert("Bitte eine gültige Anzahl der Einheiten (1–999) eingeben.");
+      return;
+    }
+    onSubmit({ fullName, email, phone, address, plz, city, units: unitsNum, note });
   };
 
   return (
@@ -70,13 +76,12 @@ export default function BookingModal({ slot, onClose, onSubmit }) {
             />
           </div>
 
-          {/* PLZ + Stadt u istom redu */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium">PLZ *</label>
               <input
                 type="text"
-                pattern="^[0-9]{4,5}$"
+                pattern="\d{4,5}"
                 title="Bitte 4–5 Ziffern eingeben"
                 className="w-full rounded-lg border border-slate-300 p-2"
                 value={plz}
@@ -94,6 +99,19 @@ export default function BookingModal({ slot, onClose, onSubmit }) {
                 required
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium">Einheiten (Klingeln) *</label>
+            <input
+              type="number"
+              min={1}
+              max={999}
+              className="w-full rounded-lg border border-slate-300 p-2"
+              value={units}
+              onChange={(e) => setUnits(e.target.value)}
+              required
+            />
           </div>
 
           <div>

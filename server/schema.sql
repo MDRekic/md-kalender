@@ -49,3 +49,4 @@ CREATE TABLE IF NOT EXISTS canceled_bookings (
   canceled_by_id INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+units INTEGER NOT NULL DEFAULT 1,

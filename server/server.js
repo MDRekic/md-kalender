@@ -252,9 +252,15 @@ app.delete('/api/slots/:id', ensureAdmin, async (req, res) => {
 // public – kreiranje
 app.post('/api/bookings', async (req, res) => {
   try {
-    const { slotId, fullName, email, phone, address, plz, city, note } = req.body || {};
+    const { slotId, fullName, email, phone, address, plz, city, units, note } = req.body || {};
+
+    // osnovna validacija
     if (!slotId || !fullName || !email || !phone || !address || !plz || !city) {
       return res.status(400).json({ error: 'missing_fields' });
+    }
+    const unitsNum = Number(units);
+    if (!Number.isInteger(unitsNum) || unitsNum < 1 || unitsNum > 999) {
+      return res.status(400).json({ error: 'bad_units' });
     }
 
     const slot = await get('SELECT * FROM slots WHERE id=?', [slotId]);
@@ -262,75 +268,33 @@ app.post('/api/bookings', async (req, res) => {
     if (slot.status === 'booked') return res.status(409).json({ error: 'already_booked' });
 
     const { id: bookingId } = await run(
-      'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, note) VALUES (?,?,?,?,?,?,?,?)',
-      [slotId, fullName, email, phone, address, plz, city, note || null]
+      'INSERT INTO bookings (slot_id, full_name, email, phone, address, plz, city, units, note) VALUES (?,?,?,?,?,?,?,?,?)',
+      [slotId, fullName, email, phone, address, plz, city, unitsNum, note || null]
     );
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
 
-    // e-mailovi (asinkrono, bez blokiranja odgovora)
-    // ✉️ e-mail potvrde nakon rezervacije (asinkrono, ali pouzdano)
-setImmediate(async () => {
-  try {
-    const brand   = process.env.BRAND_NAME   || 'MyDienst';
-    const adminTo = process.env.ADMIN_EMAIL  || '';
-    const replyTo = process.env.REPLY_TO_EMAIL || adminTo || undefined;
+    // ✉️ mailovi (kao i do sada)
+    setImmediate(async () => {
+      try {
+        const transport = makeTransport();
+        const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
 
-    const when    = `${slot.date} ${slot.time}`;
-    const subject = `Terminbestätigung – ${when}`;
+        const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
+          brand: process.env.BRAND_NAME || 'MyDienst',
+          toAdmin: process.env.ADMIN_EMAIL,
+          toInvitee: email,
+          slot,
+          // proslijedimo units u booking objektu
+          booking: { full_name: fullName, email, phone, address, plz, city, units: unitsNum, note },
+          replyTo,
+        });
 
-    // HTML za klijenta
-    const htmlInvitee = `
-      <p>Guten Tag ${escapeHtml(fullName)},</p>
-      <p>vielen Dank für Ihre Terminbuchung bei <b>${escapeHtml(brand)}</b>.</p>
-      <p><b>Termin:</b> ${escapeHtml(slot.date)} um ${escapeHtml(slot.time)} (Dauer ${slot.duration} Min.)</p>
-      <p><b>Ihre Daten</b></p>
-      <ul>
-        <li>Name: ${escapeHtml(fullName)}</li>
-        <li>E-Mail: ${escapeHtml(email)}</li>
-        <li>Telefon: ${escapeHtml(phone)}</li>
-        <li>Adresse: ${escapeHtml(address)}, ${escapeHtml(plz)} ${escapeHtml(city)}</li>
-        ${note ? `<li>Notiz: ${escapeHtml(note)}</li>` : ''}
-      </ul>
-      <p>Falls Sie den Termin ändern oder absagen möchten, antworten Sie bitte auf diese E-Mail.</p>
-      <p>— ${escapeHtml(brand)}</p>
-    `;
-
-    // HTML za admina
-    const htmlAdmin = `
-      <p>Neue Buchung eingegangen:</p>
-      <ul>
-        <li><b>Termin:</b> ${escapeHtml(slot.date)} ${escapeHtml(slot.time)} • ${slot.duration} Min.</li>
-        <li><b>Kunde:</b> ${escapeHtml(fullName)} (${escapeHtml(email)})</li>
-        <li><b>Telefon:</b> ${escapeHtml(phone)}</li>
-        <li><b>Adresse:</b> ${escapeHtml(address)}, ${escapeHtml(plz)} ${escapeHtml(city)}</li>
-        ${note ? `<li><b>Notiz:</b> ${escapeHtml(note)}</li>` : ''}
-      </ul>
-    `;
-
-    // pošalji oba maila paralelno
-    await Promise.all([
-      sendMail({
-        to: email,
-        subject,
-        html: htmlInvitee,
-        replyTo,
-      }),
-      adminTo
-        ? sendMail({
-            to: adminTo,
-            subject: `Neue Buchung – ${subject}`,
-            html: htmlAdmin,
-            replyTo,
-          })
-        : Promise.resolve(),
-    ]);
-
-    console.log('[mail after booking] sent to invitee + admin for bookingId:', bookingId);
-  } catch (err) {
-    console.error('[mail after booking] FAILED:', err);
-  }
-});
-
+        await transport.sendMail({ from: process.env.SMTP_USER, to: email, subject, html: htmlInvitee, replyTo });
+        await transport.sendMail({ from: process.env.SMTP_USER, to: process.env.ADMIN_EMAIL, subject: `Neue Buchung – ${subject}`, html: htmlAdmin, replyTo });
+      } catch (err) {
+        console.error('[mail after booking]', err);
+      }
+    });
 
     res.json({ bookingId, slotId });
   } catch (e) {
@@ -356,7 +320,7 @@ app.get('/api/admin/bookings', ensurePrivileged, async (req, res) => {
 
     const rows = await all(
       `SELECT b.id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.units, b.note,
               b.created_at, b.completed_by, b.completed_at
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
@@ -393,7 +357,7 @@ app.get('/api/admin/completed', ensurePrivileged, async (req, res) => {
     const r = rangeWhere(from, to);              // filtriramo po datumu slota (s.date)
     const rows = await all(
       `SELECT b.id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.units, b.note,
               b.completed_by, b.completed_at
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
@@ -543,7 +507,7 @@ app.get('/api/bookings.csv', ensurePrivileged, async (_req, res) => {
   try {
     const rows = await all(
       `SELECT b.id as booking_id, s.date, s.time, s.duration,
-              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.note,
+              b.full_name, b.email, b.phone, b.address, b.plz, b.city, b.units, b.note,
               b.created_at, b.completed_by, b.completed_at
          FROM bookings b
          JOIN slots s ON s.id = b.slot_id
@@ -602,6 +566,7 @@ app.get('/api/bookings/:id/print', async (req, res) => {
       <div><b>Adresse</b></div><div>${row.address}</div>
       <div><b>PLZ</b></div><div>${row.plz}</div>
       <div><b>Stadt</b></div><div>${row.city}</div>
+      <div><b>Einheiten</b></div><div>${row.units}</div>
       <div><b>Notiz</b></div><div>${row.note || '–'}</div>
       <div><b>Erstellt am</b></div><div>${row.created_at}</div>
       <div><b>Erledigt von</b></div><div>${row.completed_by || '—'}</div>

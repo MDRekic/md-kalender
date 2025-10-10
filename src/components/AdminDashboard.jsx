@@ -140,6 +140,7 @@ export default function AdminDashboard({ onLogout }) {
                 <th className="px-3 py-2 text-left">Kunde</th>
                 <th className="px-3 py-2 text-left">Kontakt</th>
                 <th className="px-3 py-2 text-left">Adresse</th>
+                <th className="px-3 py-2 text-left">Einheiten</th>
                 <th className="px-3 py-2 text-left">Notiz</th>
                 <th className="px-3 py-2 text-left">Aktionen</th>
               </tr>
@@ -164,7 +165,7 @@ export default function AdminDashboard({ onLogout }) {
                       {row.phone && <div className="text-slate-500">{row.phone}</div>}
                     </td>
                     <td className="px-3 py-2">
-                      {[row.address, row.plz, row.city].filter(Boolean).join(", ")}
+                      {[row.address, row.plz, row.city, row.units].filter(Boolean).join(", ")}
                     </td>
                     <td className="px-3 py-2">{row.note || "—"}</td>
                     <td className="px-3 py-2">
@@ -209,6 +210,7 @@ export default function AdminDashboard({ onLogout }) {
                 <th className="px-3 py-2 text-left">Kunde</th>
                 <th className="px-3 py-2 text-left">Kontakt</th>
                 <th className="px-3 py-2 text-left">Adresse</th>
+                <th className="px-3 py-2 text-left">Einheiten</th>
                 <th className="px-3 py-2 text-left">Notiz</th>
                 <th className="px-3 py-2 text-left">Fertig von</th>
                 <th className="px-3 py-2 text-left">Fertig am</th>
@@ -259,6 +261,7 @@ export default function AdminDashboard({ onLogout }) {
                 <th className="px-3 py-2 text-left">Kunde</th>
                 <th className="px-3 py-2 text-left">Kontakt</th>
                 <th className="px-3 py-2 text-left">Adresse</th>
+                <th className="px-3 py-2 text-left">Einheiten</th>
                 <th className="px-3 py-2 text-left">Grund</th>
                 <th className="px-3 py-2 text-left">Storniert von</th>
                 <th className="px-3 py-2 text-left">Storniert am</th>
