@@ -42,7 +42,7 @@ export default function KalendarPage() {
     }
   }
 
-  async function submitBooking({ fullName, email, phone, address, plz, city, note }) {
+  async function submitBooking({ fullName, email, phone, address, units, plz, city, note }) {
     if (!fullName || !email || !phone || !address || units || !plz || !city) {
       alert("Bitte füllen Sie alle Pflichtfelder aus.");
       return;
