@@ -8,7 +8,7 @@ import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 
 import { all, get, migrate, run } from './db.js';
-import { makeTransport, bookingEmails, sendMail } from './email.js';
+import { sendMail } from './email.js';
 import { issueToken, verifyToken } from './auth.js';
 
 dotenv.config();
@@ -268,19 +268,46 @@ app.post('/api/bookings', async (req, res) => {
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
 
     // e-mailovi (asinkrono, bez blokiranja odgovora)
-    setImmediate(async () => {
+    // ✉️ e-mail potvrde nakon rezervacije (asinkrono, ali pouzdano)
+setImmediate(async () => {
   try {
-    const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
+    const brand   = process.env.BRAND_NAME   || 'MyDienst';
+    const adminTo = process.env.ADMIN_EMAIL  || '';
+    const replyTo = process.env.REPLY_TO_EMAIL || adminTo || undefined;
 
-    const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
-      brand: process.env.BRAND_NAME || 'MyDienst',
-      toAdmin: process.env.ADMIN_EMAIL,
-      toInvitee: email,
-      slot,
-      booking: { full_name: fullName, email, phone, address, plz, city, note },
-      replyTo,
-    });
+    const when    = `${slot.date} ${slot.time}`;
+    const subject = `Terminbestätigung – ${when}`;
 
+    // HTML za klijenta
+    const htmlInvitee = `
+      <p>Guten Tag ${escapeHtml(fullName)},</p>
+      <p>vielen Dank für Ihre Terminbuchung bei <b>${escapeHtml(brand)}</b>.</p>
+      <p><b>Termin:</b> ${escapeHtml(slot.date)} um ${escapeHtml(slot.time)} (Dauer ${slot.duration} Min.)</p>
+      <p><b>Ihre Daten</b></p>
+      <ul>
+        <li>Name: ${escapeHtml(fullName)}</li>
+        <li>E-Mail: ${escapeHtml(email)}</li>
+        <li>Telefon: ${escapeHtml(phone)}</li>
+        <li>Adresse: ${escapeHtml(address)}, ${escapeHtml(plz)} ${escapeHtml(city)}</li>
+        ${note ? `<li>Notiz: ${escapeHtml(note)}</li>` : ''}
+      </ul>
+      <p>Falls Sie den Termin ändern oder absagen möchten, antworten Sie bitte auf diese E-Mail.</p>
+      <p>— ${escapeHtml(brand)}</p>
+    `;
+
+    // HTML za admina
+    const htmlAdmin = `
+      <p>Neue Buchung eingegangen:</p>
+      <ul>
+        <li><b>Termin:</b> ${escapeHtml(slot.date)} ${escapeHtml(slot.time)} • ${slot.duration} Min.</li>
+        <li><b>Kunde:</b> ${escapeHtml(fullName)} (${escapeHtml(email)})</li>
+        <li><b>Telefon:</b> ${escapeHtml(phone)}</li>
+        <li><b>Adresse:</b> ${escapeHtml(address)}, ${escapeHtml(plz)} ${escapeHtml(city)}</li>
+        ${note ? `<li><b>Notiz:</b> ${escapeHtml(note)}</li>` : ''}
+      </ul>
+    `;
+
+    // pošalji oba maila paralelno
     await Promise.all([
       sendMail({
         to: email,
@@ -288,12 +315,14 @@ app.post('/api/bookings', async (req, res) => {
         html: htmlInvitee,
         replyTo,
       }),
-      sendMail({
-        to: process.env.ADMIN_EMAIL,
-        subject: `Neue Buchung – ${subject}`,
-        html: htmlAdmin,
-        replyTo,
-      }),
+      adminTo
+        ? sendMail({
+            to: adminTo,
+            subject: `Neue Buchung – ${subject}`,
+            html: htmlAdmin,
+            replyTo,
+          })
+        : Promise.resolve(),
     ]);
 
     console.log('[mail after booking] sent to invitee + admin for bookingId:', bookingId);
@@ -301,6 +330,7 @@ app.post('/api/bookings', async (req, res) => {
     console.error('[mail after booking] FAILED:', err);
   }
 });
+
 
     res.json({ bookingId, slotId });
   } catch (e) {
