@@ -10,7 +10,7 @@ import bcrypt from 'bcryptjs';
 import { all, get, migrate, run } from './db.js';
 import { makeTransport, bookingEmails, sendMail } from './email.js';
 import { issueToken, verifyToken } from './auth.js';
-//import { bookingEmails, sendMail } from './email.js';
+
 
 dotenv.config();
 
@@ -247,49 +247,44 @@ app.post('/api/bookings', async (req, res) => {
     await run('UPDATE slots SET status="booked" WHERE id=?', [slotId]);
 
     // ... (ostatak mailova ostaje identičan)
+// nakon što INSERT u bookings uspije i status slota prebacite na "booked":
 setImmediate(async () => {
   try {
-    const replyTo = process.env.REPLY_TO_EMAIL || 'termin@mydienst.de';
+    const transport = makeTransport();
+    const replyTo = process.env.REPLY_TO_EMAIL || process.env.SMTP_USER;
+    const brand = process.env.BRAND_NAME || 'MyDienst';
 
     const { subject, htmlInvitee, htmlAdmin } = bookingEmails({
-      brand: process.env.BRAND_NAME || 'MyDienst',
+      brand,
       toAdmin: process.env.ADMIN_EMAIL,
-      toInvitee: email,
-      slot, // objekt slota koji si već učitao
-      booking: {
-        full_name: fullName,
-        email,
-        phone,
-        address,
-        plz,
-        city,
-        note,
-        einheiten: req.body?.einheiten ?? null, // ako šalješ broj jedinica
-      },
+      toInvitee: email, // kupčev email iz req.body
+      slot,
+      booking: { full_name: fullName, email, phone, address, plz, city, note, units },
       replyTo,
     });
 
-    // kupac
-    await sendMail({
+    await transport.sendMail({
+      from: process.env.SMTP_USER,
       to: email,
       subject,
       html: htmlInvitee,
       replyTo,
     });
 
-    // admin
-    await sendMail({
-      to: process.env.ADMIN_EMAIL,
-      subject: `Neue Buchung – ${subject}`,
-      html: htmlAdmin,
-      replyTo,
-    });
-
-    console.log('[mail after booking] OK');
+    if (process.env.ADMIN_EMAIL) {
+      await transport.sendMail({
+        from: process.env.SMTP_USER,
+        to: process.env.ADMIN_EMAIL,
+        subject: `Neue Buchung – ${subject}`,
+        html: htmlAdmin,
+        replyTo,
+      });
+    }
   } catch (err) {
     console.error('[mail after booking] FAILED:', err);
   }
 });
+
 
     res.json({ bookingId, slotId });
   } catch (e) {
