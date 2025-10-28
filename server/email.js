@@ -4,66 +4,99 @@ import nodemailer from 'nodemailer';
 export function makeTransport() {
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT || 587);
+  const secure = String(process.env.SMTP_SECURE || 'false') === 'true';
+
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
 
   return nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user, pass },
+    host, port, secure,
+    auth: user && pass ? { user, pass } : undefined,
   });
 }
 
 /**
- * Generiše subject + HTML za potvrdu rezervacije:
- *  - htmlInvitee: mail za kupca
- *  - htmlAdmin: mail za admina
+ * Generic helper: prosljeđuje SVE opcije Nodemailer-u
+ * Podržano: to, cc, bcc, subject, html, text, from, replyTo, attachments...
  */
-export function bookingEmails({ brand, toInvitee, toAdmin, slot, booking, replyTo }) {
-  const when = `${slot.date} ${slot.time}`;
-  const subject = `Terminbestätigung – ${when}`;
+export async function sendMail({
+  to,
+  cc,
+  bcc,
+  subject,
+  html,
+  text,
+  from,
+  replyTo,
+  attachments,
+}) {
+  const transport = makeTransport();
 
-  const baseTable = (extraRows = '') => `
-    <table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">
-      <tr><td><b>Datum</b></td><td>${slot.date}</td></tr>
-      <tr><td><b>Uhrzeit</b></td><td>${slot.time}</td></tr>
-      <tr><td><b>Dauer</b></td><td>${slot.duration} Min.</td></tr>
-      <tr><td><b>Einheiten</b></td><td>${booking.units ?? '—'}</td></tr>
-      <tr><td><b>Name</b></td><td>${booking.full_name}</td></tr>
-      <tr><td><b>E-Mail</b></td><td>${booking.email}</td></tr>
-      <tr><td><b>Telefon</b></td><td>${booking.phone || ''}</td></tr>
-      <tr><td><b>Adresse</b></td><td>${booking.address || ''}</td></tr>
-      <tr><td><b>PLZ</b></td><td>${booking.plz || ''}</td></tr>
-      <tr><td><b>Stadt</b></td><td>${booking.city || ''}</td></tr>
-      <tr><td><b>Notiz</b></td><td>${booking.note || '—'}</td></tr>
-      ${extraRows}
-    </table>
-  `;
+  // helper: normalizuj liste (dozvoli string "a@x,b@y" ili niz)
+  const norm = (v) =>
+    !v ? undefined
+       : Array.isArray(v) ? v
+       : String(v).split(',').map(s => s.trim()).filter(Boolean);
+
+  const info = await transport.sendMail({
+    from: from || process.env.SMTP_USER,
+    to: norm(to),
+    cc: norm(cc),
+    bcc: norm(bcc),
+    subject,
+    html,
+    text,
+    replyTo: replyTo || process.env.REPLY_TO_EMAIL,
+    attachments,
+  });
+
+  // korisno za debug
+  console.log('[mail] sent:', {
+    messageId: info.messageId,
+    to: info.envelope?.to,
+    cc: norm(cc),
+    bcc: norm(bcc),
+    subject,
+  });
+
+  return info;
+}
+
+/**
+ * (ostavi ovo ako ga koristiš negdje za HTML templates)
+ * bookingEmails({ brand, toAdmin, toInvitee, slot, booking, replyTo })
+ */
+export function bookingEmails({ brand = 'MyDienst', slot, booking }) {
+  const when = `${slot.date} ${slot.time}`;
+  const subject = `Termin bestätigt – ${when}`;
 
   const htmlInvitee = `
-    <p>Guten Tag ${booking.full_name},</p>
-    <p>vielen Dank für Ihre Terminbuchung bei <b>${brand}</b>.</p>
-    ${baseTable()}
-    <p>Falls Sie Fragen haben, antworten Sie einfach auf diese E-Mail.</p>
+    <p>Guten Tag ${escapeHtml(booking.full_name)},</p>
+    <p>Ihr Termin am <b>${escapeHtml(slot.date)}</b> um <b>${escapeHtml(slot.time)}</b>
+       (Dauer ${escapeHtml(String(slot.duration))} Min.) wurde bestätigt.</p>
+    <p>— ${escapeHtml(brand)}</p>
   `;
 
   const htmlAdmin = `
-    <p>Neue Buchung eingegangen:</p>
-    ${baseTable(`<tr><td><b>Empfänger</b></td><td>${toInvitee}</td></tr>`)}
+    <p>Neue Buchung:</p>
+    <ul>
+      <li><b>Kunde:</b> ${escapeHtml(booking.full_name)} (${escapeHtml(booking.email)})</li>
+      <li><b>Telefon:</b> ${escapeHtml(booking.phone || '')}</li>
+      <li><b>Adresse:</b> ${escapeHtml(booking.address || '')}, ${escapeHtml(booking.plz || '')} ${escapeHtml(booking.city || '')}</li>
+      <li><b>Einheiten:</b> ${escapeHtml(String(booking.units ?? '—'))}</li>
+      <li><b>Datum/Zeit:</b> ${escapeHtml(slot.date)} ${escapeHtml(slot.time)} · ${escapeHtml(String(slot.duration))} Min.</li>
+      <li><b>Notiz:</b> ${escapeHtml(booking.note || '—')}</li>
+    </ul>
   `;
 
   return { subject, htmlInvitee, htmlAdmin };
 }
 
-/** Jednostavan helper za slanje maila jednim pozivom */
-export async function sendMail({ to, subject, html, replyTo }) {
-  const transport = makeTransport();
-  await transport.sendMail({
-    from: process.env.SMTP_USER,
-    to,
-    subject,
-    html,
-    replyTo,
-  });
+function escapeHtml(s = '') {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
