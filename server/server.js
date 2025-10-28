@@ -423,6 +423,7 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
     await sendMail({ to: row.email, subject, html });
     await sendMail({
       to: process.env.ADMIN_EMAIL,
+      cc: process.env.ADMIN_EMAIL_CC ? process.env.ADMIN_EMAIL_CC.split(",") : undefined,
       subject: `ADMIN: ${subject}`,
       html: `<p>Storno erfasst.</p>
              <ul>
@@ -434,6 +435,7 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
                <li><b>Grund:</b> ${escapeHtml(reason)}</li>
                <li><b>Storniert von:</b> ${escapeHtml(req.user?.username || '')}</li>
              </ul>`
+             
     });
 
     res.json({ ok: true });
