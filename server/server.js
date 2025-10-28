@@ -420,7 +420,15 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
       <p>Ihr Termin am <b>${row.slot_date}</b> um <b>${row.slot_time}</b> (Dauer ${row.slot_duration} Min.) wurde storniert.</p>
       <p><b>Grund:</b> ${escapeHtml(reason)}</p>
       <p>— ${process.env.BRAND_NAME || 'MyDienst'}</p>`;
-    await sendMail({ to: row.email, subject, html });
+   // mail ka korisniku
+await sendMail({
+  to: row.email,
+  subject,
+  html,
+  replyTo: process.env.REPLY_TO_EMAIL,
+});
+
+// mailovi ka administratorima (više adresa)
 await sendMail({
   from: process.env.SMTP_USER,
   to: process.env.ADMIN_EMAIL,
@@ -438,6 +446,7 @@ await sendMail({
     </ul>`,
   replyTo: process.env.REPLY_TO_EMAIL,
 });
+
 
     res.json({ ok: true });
   } catch (e) {
