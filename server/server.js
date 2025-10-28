@@ -421,22 +421,23 @@ app.delete('/api/admin/bookings/:id', ensureStaff, async (req, res) => {
       <p><b>Grund:</b> ${escapeHtml(reason)}</p>
       <p>— ${process.env.BRAND_NAME || 'MyDienst'}</p>`;
     await sendMail({ to: row.email, subject, html });
-    await sendMail({
-      to: process.env.ADMIN_EMAIL,
-      cc: process.env.ADMIN_EMAIL_CC ? process.env.ADMIN_EMAIL_CC.split(",") : undefined,
-      subject: `ADMIN: ${subject}`,
-      html: `<p>Storno erfasst.</p>
-             <ul>
-               <li><b>Kunde:</b> ${escapeHtml(row.full_name)} (${escapeHtml(row.email)})</li>
-               <li><b>Telefon:</b> ${escapeHtml(row.phone || '')}</li>
-               <li><b>Adresse:</b> ${escapeHtml(row.address || '')}, ${escapeHtml(row.plz || '')} ${escapeHtml(row.city || '')}</li>
-               <li><b>Einheiten:</b> ${row.einheiten ?? '—'}</li>
-               <li><b>Datum/Zeit:</b> ${row.slot_date} ${row.slot_time} · ${row.slot_duration} Min.</li>
-               <li><b>Grund:</b> ${escapeHtml(reason)}</li>
-               <li><b>Storniert von:</b> ${escapeHtml(req.user?.username || '')}</li>
-             </ul>`
-             
-    });
+await sendMail({
+  from: process.env.SMTP_USER,
+  to: process.env.ADMIN_EMAIL,
+  cc: process.env.ADMIN_EMAIL_CC ? process.env.ADMIN_EMAIL_CC.split(",") : undefined,
+  subject: `ADMIN: ${subject}`,
+  html: `
+    <p>Storno erfasst.</p>
+    <ul>
+      <li><b>Kunde:</b> ${escapeHtml(row.full_name)} (${escapeHtml(row.email)})</li>
+      <li><b>Telefon:</b> ${escapeHtml(row.phone || '')}</li>
+      <li><b>Adresse:</b> ${escapeHtml(row.address || '')}, ${escapeHtml(row.plz || '')} ${escapeHtml(row.city || '')}</li>
+      <li><b>Datum/Zeit:</b> ${row.slot_date} ${row.slot_time} · ${row.slot_duration} Min.</li>
+      <li><b>Grund:</b> ${escapeHtml(reason)}</li>
+      <li><b>Storniert von:</b> ${escapeHtml(req.user?.username || '')}</li>
+    </ul>`,
+  replyTo: process.env.REPLY_TO_EMAIL,
+});
 
     res.json({ ok: true });
   } catch (e) {
