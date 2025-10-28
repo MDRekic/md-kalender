@@ -272,13 +272,15 @@ setImmediate(async () => {
     });
 
     if (process.env.ADMIN_EMAIL) {
-      await transport.sendMail({
-        from: process.env.SMTP_USER,
-        to: process.env.ADMIN_EMAIL,
-        subject: `Neue Buchung – ${subject}`,
-        html: htmlAdmin,
-        replyTo,
-      });
+  await transport.sendMail({
+  from: process.env.SMTP_USER,
+  to: process.env.ADMIN_EMAIL,
+  cc: process.env.ADMIN_EMAIL_CC ? process.env.ADMIN_EMAIL_CC.split(",") : undefined,
+  subject: `Neue Buchung – ${subject}`,
+  html: htmlAdmin,
+  replyTo,
+});
+
     }
   } catch (err) {
     console.error('[mail after booking] FAILED:', err);
